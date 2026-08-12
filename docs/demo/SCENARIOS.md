@@ -35,12 +35,27 @@ Idle → Precheck → Heating → Holding → Cooling → Complete
 Start_ValidRecipe_ProgressesThroughNormalPhasesToComplete
 ```
 
-권장 증거 파일명:
+### 화면 증거
 
-```text
-docs/demo/images/01-holding.png
-docs/demo/images/02-complete.png
-```
+![IDLE 기준선 — 앱 창만 포함](images/00-idle.png)
+
+- `IDLE`, `Standard 250C`, 현재 온도 `20.00 °C`, Door `Closed`, Sensor Feedback `Active`, Active Alarm `None`
+- Start 활성화, Acknowledge·Reset 비활성화
+
+![HOLDING 상태 — 앱 창만 포함](images/01-holding.png)
+
+- `HOLDING`, 현재·목표 온도 `250.00 °C`, Door `Closed`, Active Alarm `None`
+- Event / Alarm Log: `Start → Phase: Precheck → Phase: Heating → Phase: Holding`
+
+![COOLING 상태 — 앱 창만 포함](images/02-cooling.png)
+
+- `COOLING`, 현재 온도 `213.25 °C`, Door `Closed`, Active Alarm `None`
+- Event / Alarm Log에 `Phase: Cooling`이 추가된 중간 전이
+
+![COMPLETE Event Log — 앱 창만 포함](images/03-complete.png)
+
+- `COMPLETE`, Active Alarm `None`
+- Event / Alarm Log에 `Precheck → Heating → Holding → Cooling → Complete`가 순서대로 기록됨
 
 ## 2. DoorOpen Alarm과 Recovery
 
@@ -65,12 +80,17 @@ OpenDoor_WhileHeating_EntersDoorOpenAlarm
 Reset_AfterDoorAlarmIsClosedAndAcknowledged_ReturnsToIdle
 ```
 
-권장 증거 파일명:
+### 화면 증거
 
-```text
-docs/demo/images/03-door-open-alarm.png
-docs/demo/images/04-door-recovery.png
-```
+![DoorOpen Alarm — 앱 창만 포함](images/04-door-open-alarm.png)
+
+- `ALARM`, Door `Open`, Active Alarm `DoorOpen`, Recovery Ready `No`, Acknowledge 활성화
+- Event / Alarm Log 마지막 행: `Alarm: DoorOpen`
+
+![DoorOpen Recovery — 앱 창만 포함](images/05-door-recovery.png)
+
+- `RECOVERY`, Door `Closed`, Active Alarm `DoorOpen`, Recovery Ready `Yes`, Reset 활성화
+- Event / Alarm Log: `Alarm: DoorOpen → Acknowledgement → Recovery ready`
 
 ## 3. OverTemperature Alarm과 Recovery
 
@@ -88,12 +108,19 @@ docs/demo/images/04-door-recovery.png
 ReportTemperature_AtSafetyLimit_AlarmsUntilTemperatureIsBelowLimit
 ```
 
-권장 증거 파일명:
+### 화면 증거
 
-```text
-docs/demo/images/05-over-temperature-alarm.png
-docs/demo/images/06-over-temperature-recovery.png
-```
+![OverTemperature Event Log — 앱 창만 포함](images/06-over-temperature-alarm.png)
+
+- 현재 온도와 Simulation Input이 `300.0 °C`이며 Event / Alarm Log에 `Alarm: OverTemperature`가 기록됨
+- 이 캡처는 앞선 DoorOpen이 아직 pending인 복합 인터락 세션이다. 따라서 Safety / Interlock의 Active Alarm 표시는 `DoorOpen`이며, 단독 과온 Alarm 화면으로 해석하지 않는다.
+
+![OverTemperature 이후 복합 Recovery — 앱 창만 포함](images/07-over-temperature-recovery.png)
+
+- Event / Alarm Log에는 `Alarm: OverTemperature → Acknowledgement → Recovery ready`가 남음
+- Active Alarm이 `DoorOpen`으로 남은 이유도 같은 pending interlock 때문이다. Reset은 모든 pending alarm이 clear된 뒤에만 가능하다.
+
+이 화면은 여러 pending interlock을 함께 추적하는 흐름의 Event Log 증거다. fresh run의 단독 OverTemperature 상태·Recovery 조건은 위 UI 절차와 `ReportTemperature_AtSafetyLimit_AlarmsUntilTemperatureIsBelowLimit` 자동 테스트를 함께 근거로 사용한다.
 
 ## 4. SensorTimeout Alarm과 Recovery
 
@@ -114,13 +141,22 @@ FeedbackPaused_PastTimeout_RequiresResumeAndFreshTickBeforeReset
 FeedbackPaused_AfterTimeout_DoesNotRepeatedlyReassertSensorTimeout
 ```
 
-권장 증거 파일명:
+### 화면 증거
 
-```text
-docs/demo/images/07-sensor-timeout-alarm.png
-docs/demo/images/08-sensor-timeout-recovery.png
-```
+![SensorTimeout Alarm — 앱 창만 포함](images/08-sensor-timeout-alarm.png)
+
+- `ALARM`, Sensor Feedback `Paused`, Active Alarm `SensorTimeout`, Recovery Ready `No`
+- Event / Alarm Log 마지막 행: `Alarm: SensorTimeout`
+
+![SensorTimeout Recovery — 앱 창만 포함](images/09-sensor-timeout-recovery.png)
+
+- `RECOVERY`, Sensor Feedback `Active`, Active Alarm `SensorTimeout`, Recovery Ready `Yes`, Reset 활성화
+- Event / Alarm Log: `Alarm: SensorTimeout → Acknowledgement → Recovery ready`
 
 ## 캡처 상태
 
-현재 공개 스냅샷에는 새 이름으로 검증된 UI 캡처가 아직 없다. 위 파일명은 캡처 절차가 완료된 뒤에만 추가한다. Holding의 시간 경계와 Alarm·Recovery 규칙은 현재 Event History와 명시된 Core 테스트가 근거다.
+현재 공개 저장소에는 새 이름으로 검증한 앱 창 전용 UI 캡처 10장을 연결했다. 이 이미지는 IDLE 기준선, 정상 상태 전이, DoorOpen, OverTemperature Event Log, SensorTimeout Alarm / Recovery를 보여 준다.
+
+OverTemperature 두 화면은 `DoorOpen`이 pending인 복합 인터락 세션에서 캡처됐다. 화면의 Active Alarm 표시는 `DoorOpen`이지만, Event / Alarm Log에는 `OverTemperature` 이벤트가 남아 있다. 따라서 이 이미지는 복수 interlock의 로그 증거이며, 단독 과온 상태는 위 UI 절차와 자동 테스트로 검증한다.
+
+Holding의 시간 경계와 Alarm·Recovery 규칙은 화면 캡처뿐 아니라 명시된 Core 테스트와 Event History를 함께 근거로 사용한다.

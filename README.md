@@ -25,7 +25,13 @@ MSTest:      27 passed
 
 ## UI 증거
 
-이 공개 스냅샷에는 이전 프로젝트명과 화면 문구가 표시된 캡처를 포함하지 않습니다. 새 이름으로 실행한 앱 창 전용 캡처는 검증 후 `docs/demo/images/`에 추가합니다.
+아래 화면은 공개 프로젝트 이름으로 실행한 앱 창 전용 캡처다. 실제 챔버·PLC·온도 센서·히터를 제어하는 화면이 아니며, 온도와 안전 입력은 모두 시뮬레이션 값이다.
+
+![IDLE 기준선 — 앱 창만 포함](docs/demo/images/00-idle.png)
+
+`IDLE`, `Standard 250C`, 현재 온도 `20.00 °C`, Door `Closed`, Sensor Feedback `Active`, Active Alarm `None`을 확인할 수 있다. Start는 활성화되어 있고 Acknowledge와 Reset은 비활성화되어 있다.
+
+정상 전이, DoorOpen, OverTemperature, SensorTimeout의 화면 증거와 Event / Alarm Log는 [데모 시나리오](docs/demo/SCENARIOS.md)에 연결했다. 복합 인터락 상태를 포함한 OverTemperature 캡처는 문서의 주석 범위에서만 해석한다.
 
 ## 구조 한눈에 보기
 
