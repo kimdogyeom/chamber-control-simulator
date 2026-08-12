@@ -1,0 +1,48 @@
+# Visual Studio user state and local IDE caches
+.vs/
+.vscode/
+.idea/
+*.suo
+*.user
+*.userosscache
+*.rsuser
+*.sln.docstates
+*.code-workspace
+
+# Build, test, and diagnostic output
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+[Tt]est[Rr]esult*/
+coverage*/
+*.coverage
+*.coveragexml
+*.log
+*.tmp
+*.cache
+*.binlog
+
+# Local agent metadata and private planning
+.hermes/
+
+# Local settings, credentials, signing material, and secret directories
+.env
+.env.*
+!.env.example
+*.pfx
+*.p12
+*.pem
+*.key
+*.snk
+secrets/
+credentials/
+
+# Operating-system and editor noise
+Thumbs.db
+Desktop.ini
+.DS_Store
+*.swp
+*~
+
+# Public UI evidence is intentionally tracked under docs/demo/images/.

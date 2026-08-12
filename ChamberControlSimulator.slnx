@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="ChamberControlSimulator.Core.Tests/ChamberControlSimulator.Core.Tests.csproj" />
+  <Project Path="ChamberControlSimulator.Core/ChamberControlSimulator.Core.csproj" />
+  <Project Path="ChamberControlSimulator.Presentation.Tests/ChamberControlSimulator.Presentation.Tests.csproj" />
+  <Project Path="ChamberControlSimulator/ChamberControlSimulator.csproj" />
+</Solution>
