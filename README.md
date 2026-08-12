@@ -1,6 +1,6 @@
 # Virtual Thermal Chamber Controller
 
-WinForms 기반 가상 열처리 챔버 제어 시뮬레이터입니다. 목표는 화면을 많이 만드는 것이 아니라, 상태 전이·안전 인터락·Alarm·Recovery를 Core 규칙으로 분리하고 자동 테스트로 확인하는 것입니다.
+WinForms 기반 가상 열처리 챔버 제어 시뮬레이터입니다. 상태 전이·안전 인터락·Alarm·Recovery를 Core 규칙으로 분리하고 자동 테스트로 확인합니다.
 
 이 프로젝트는 실제 챔버, PLC, 산업 통신 프로토콜, 온도 센서, 히터를 제어하지 않습니다. 온도, Recipe, 안전 한계, 시간 변화는 학습과 시연을 위한 시뮬레이션 예시값입니다.
 
@@ -48,7 +48,7 @@ Form1 (WinForms View)
 - **EquipmentPresenter**는 View 요청을 Core에 전달하고 최신 결과를 View에 반영합니다.
 - **ThermalController**만 상태 전이와 안전 조건을 판단합니다. Form이나 Presenter가 Alarm·Recovery·Reset을 독자적으로 결정하지 않습니다.
 
-상세한 책임 분리와 테스트-불변식 매핑은 [아키텍처와 검증 기록](docs/architecture-and-verification.md)에서 확인할 수 있습니다.
+책임 분리와 테스트-불변식 매핑은 [아키텍처와 검증 기록](docs/architecture-and-verification.md)에 정리했습니다.
 
 ## 공정과 복구 흐름
 
