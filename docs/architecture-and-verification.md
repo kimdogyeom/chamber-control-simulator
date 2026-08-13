@@ -57,7 +57,7 @@ Idle → Precheck → Heating → Holding → Cooling → Complete
 - `Cooling`: ambient temperature까지 가상 온도를 내리는 단계
 - `Complete`: 정상 공정이 끝난 상태
 
-`Holding`은 기본 3초다. Controller는 Holding 진입 때 누적 시간을 0으로 초기화하고, 이후 `Tick(elapsed)`마다 elapsed를 더한다. 누적값이 `HoldDuration` 이상일 때만 Cooling으로 전이한다. 따라서 화면·Timer·사용자 입력은 Holding 중에도 계속 반응한다.
+`Holding`은 기본 3초다. Controller는 Holding 진입 때 누적 시간을 0으로 초기화하고, 이후 `Tick(elapsed)`마다 elapsed를 더한다. 누적값이 `HoldDuration` 이상일 때만 Cooling으로 전이한다. 화면·Timer·사용자 입력은 Holding 중에도 계속 반응한다.
 
 ## 5. Alarm과 Recovery
 
@@ -120,5 +120,3 @@ dotnet restore ChamberControlSimulator.slnx
 dotnet build ChamberControlSimulator.slnx --configuration Debug --no-restore
 dotnet test ChamberControlSimulator.slnx --configuration Debug --no-build --no-restore
 ```
-
-현재 공개 스냅샷 검증 기준은 Debug build 경고 0·오류 0, MSTest 27개 통과다.

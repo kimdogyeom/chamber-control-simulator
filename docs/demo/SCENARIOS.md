@@ -152,11 +152,3 @@ FeedbackPaused_AfterTimeout_DoesNotRepeatedlyReassertSensorTimeout
 
 - `RECOVERY`, Sensor Feedback `Active`, Active Alarm `SensorTimeout`, Recovery Ready `Yes`, Reset 활성화
 - Event / Alarm Log: `Alarm: SensorTimeout → Acknowledgement → Recovery ready`
-
-## 캡처 상태
-
-현재 공개 저장소에는 새 이름으로 검증한 앱 창 전용 UI 캡처 10장을 연결했다. 이 이미지는 IDLE 기준선, 정상 상태 전이, DoorOpen, OverTemperature Event Log, SensorTimeout Alarm / Recovery를 보여 준다.
-
-OverTemperature 두 화면은 `DoorOpen`이 pending인 복합 인터락 세션에서 캡처됐다. 화면의 Active Alarm 표시는 `DoorOpen`이지만, Event / Alarm Log에는 `OverTemperature` 이벤트가 남아 있다. 따라서 이 이미지는 복수 interlock의 로그 증거이며, 단독 과온 상태는 위 UI 절차와 자동 테스트로 검증한다.
-
-Holding의 시간 경계와 Alarm·Recovery 규칙은 화면 캡처뿐 아니라 명시된 Core 테스트와 Event History를 함께 근거로 사용한다.
