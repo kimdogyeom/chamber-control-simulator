@@ -9,6 +9,26 @@ public sealed class VirtualPlcSimulationControl
 		_client = client;
 	}
 
+	public void ForceTransportDisconnect()
+	{
+		_client.ForceTransportDisconnect();
+	}
+
+	public void SetCurrentTemperature(double currentTemperature)
+	{
+		_client.SetCurrentTemperature(currentTemperature);
+	}
+
+	public void SetSensorHealthy(bool sensorHealthy)
+	{
+		_client.SetSensorHealthy(sensorHealthy);
+	}
+
+	public void SuppressNextAcknowledgement()
+	{
+		_client.SuppressNextAcknowledgement();
+	}
+
 	public void Advance(TimeSpan elapsed)
 	{
 		_client.Advance(elapsed);

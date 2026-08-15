@@ -7,7 +7,9 @@ public sealed class VirtualPlcClient : IPlcClient
 	private readonly VirtualPlcOptions _options;
 	private readonly List<PendingAcknowledgement> _pendingAcknowledgements = [];
 	private bool _doorClosed = true;
+	private bool _sensorHealthy = true;
 	private bool _heaterEnabled;
+	private bool _suppressNextAcknowledgement;
 	private bool _disposed;
 	private double _currentTemperature;
 	private long _acknowledgedCommandId;
@@ -48,7 +50,7 @@ public sealed class VirtualPlcClient : IPlcClient
 
 		var snapshot = new PlcInputSnapshot(
 			doorClosed: _doorClosed,
-			sensorHealthy: true,
+			sensorHealthy: _sensorHealthy,
 			currentTemperature: _currentTemperature,
 			machineState: PlcMachineState.Idle,
 			acknowledgedCommandId: _acknowledgedCommandId,
@@ -69,9 +71,16 @@ public sealed class VirtualPlcClient : IPlcClient
 			_heaterEnabled = true;
 		}
 
-		_pendingAcknowledgements.Add(new PendingAcknowledgement(
-			command.CommandId,
-			_virtualTime + _options.AcknowledgementDelay));
+		if (_suppressNextAcknowledgement)
+		{
+			_suppressNextAcknowledgement = false;
+		}
+		else
+		{
+			_pendingAcknowledgements.Add(new PendingAcknowledgement(
+				command.CommandId,
+				_virtualTime + _options.AcknowledgementDelay));
+		}
 
 		return Task.FromResult(new PlcWriteReceipt(
 			command.CommandId,
@@ -102,6 +111,36 @@ public sealed class VirtualPlcClient : IPlcClient
 		}
 
 		AcknowledgeDueCommands();
+	}
+
+	internal void ForceTransportDisconnect()
+	{
+		ThrowIfDisposed();
+		ConnectionState = PlcConnectionState.Faulted;
+	}
+
+	internal void SetCurrentTemperature(double currentTemperature)
+	{
+		ThrowIfDisposed();
+
+		if (!double.IsFinite(currentTemperature))
+		{
+			throw new ArgumentOutOfRangeException(nameof(currentTemperature));
+		}
+
+		_currentTemperature = currentTemperature;
+	}
+
+	internal void SetSensorHealthy(bool sensorHealthy)
+	{
+		ThrowIfDisposed();
+		_sensorHealthy = sensorHealthy;
+	}
+
+	internal void SuppressNextAcknowledgement()
+	{
+		ThrowIfDisposed();
+		_suppressNextAcknowledgement = true;
 	}
 
 	internal void SetDoorClosed(bool doorClosed)
