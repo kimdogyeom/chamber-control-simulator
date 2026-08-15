@@ -17,6 +17,26 @@ public sealed record PlcInputSnapshot
 		long acknowledgedCommandId,
 		long observationSequence)
 	{
+		if (!double.IsFinite(currentTemperature))
+		{
+			throw new ArgumentOutOfRangeException(nameof(currentTemperature));
+		}
+
+		if (!Enum.IsDefined(machineState))
+		{
+			throw new ArgumentOutOfRangeException(nameof(machineState));
+		}
+
+		if (acknowledgedCommandId < 0)
+		{
+			throw new ArgumentOutOfRangeException(nameof(acknowledgedCommandId));
+		}
+
+		if (observationSequence < 0)
+		{
+			throw new ArgumentOutOfRangeException(nameof(observationSequence));
+		}
+
 		DoorClosed = doorClosed;
 		SensorHealthy = sensorHealthy;
 		CurrentTemperature = currentTemperature;
