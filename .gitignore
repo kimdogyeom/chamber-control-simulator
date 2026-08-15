@@ -25,6 +25,7 @@ coverage*/
 
 # Local agent metadata and private planning
 .hermes/
+docs/roadmap/
 
 # Local settings, credentials, signing material, and secret directories
 .env
