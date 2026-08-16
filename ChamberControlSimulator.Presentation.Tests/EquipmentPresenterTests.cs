@@ -43,8 +43,11 @@ public sealed class EquipmentPresenterTests
 			view.LastEventLog.Select(entry => entry.Event).ToArray());
 	}
 
+	// 목적: Timer tick이 view를 refresh하되 legacy UI가 plant temperature를 합성하지 않는지 검증한다.
+	// 예상 결과: elapsed 전달 뒤 Heating snapshot은 다시 render되지만 observed temperature는 20°C로 유지된다.
+	// 완료 조건: Presenter가 Core Tick에 의존해 PLC-originated temperature를 바꾸지 않는다는 contract가 통과한다.
 	[TestMethod]
-	public void TimerTicked_ForwardsElapsedTimeToControllerAndRefreshesView()
+	public void TimerTicked_RefreshesViewWithoutSynthesizingPlantTemperature()
 	{
 		var view = new FakeEquipmentView();
 		var controller = new ThermalController(
@@ -57,7 +60,7 @@ public sealed class EquipmentPresenterTests
 
 		Assert.IsNotNull(view.LastSnapshot);
 		Assert.AreEqual(ControllerState.Heating, view.LastSnapshot!.State);
-		Assert.AreEqual(30d, view.LastSnapshot.CurrentTemperature);
+		Assert.AreEqual(20d, view.LastSnapshot.CurrentTemperature);
 	}
 
 	[TestMethod]

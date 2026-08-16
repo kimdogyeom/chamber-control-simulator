@@ -248,24 +248,6 @@ public sealed class ThermalController
 			TryMarkRecoveryReady();
 		}
 
-		switch (_state)
-		{
-			case ControllerState.Heating:
-				_currentTemperature = Math.Min(_recipe.TargetTemperature, _currentTemperature + elapsed.TotalSeconds * 5);
-				if (_currentTemperature >= _recipe.TargetTemperature) TransitionTo(ControllerState.Holding);
-				break;
-			case ControllerState.Holding:
-				_holdingElapsed += elapsed;
-				if (_holdingElapsed >= _recipe.HoldDuration)
-				{
-					TransitionTo(ControllerState.Cooling);
-				}
-				break;
-			case ControllerState.Cooling:
-				_currentTemperature = Math.Max(_settings.AmbientTemperature, _currentTemperature - elapsed.TotalSeconds * 5);
-				if (_currentTemperature <= _settings.AmbientTemperature) TransitionTo(ControllerState.Complete);
-				break;
-		}
 		PublishSnapshot();
 	}
 

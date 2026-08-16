@@ -6,25 +6,76 @@ namespace ChamberControlSimulator.Core.Tests;
 [TestClass]
 public sealed class ThermalControllerTests
 {
+	// 목적: Core가 supplied ThermalObservation sequence에서만 정상 phase를 진행하는지 검증한다.
+	// 예상 결과: target, hold elapsed, ambient observation 순서에 따라 Heating → Holding → Cooling → Complete가 된다.
+	// 완료 조건: Tick의 synthetic temperature change 없이 phase와 event sequence가 통과한다.
 	[TestMethod]
-	public void Start_ValidRecipe_ProgressesThroughNormalPhasesToComplete()
+	public void ApplyObservation_ValidObservedSequence_ProgressesThroughNormalPhasesToComplete()
 	{
 		var controller = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
+		var initial = new ThermalObservation(isDoorOpen: false, sensorHealthy: true, currentTemperature: 20d);
+		var target = new ThermalObservation(isDoorOpen: false, sensorHealthy: true, currentTemperature: 30d);
+		var ambient = new ThermalObservation(isDoorOpen: false, sensorHealthy: true, currentTemperature: 20d);
+		controller.ApplyObservation(initial, TimeSpan.Zero);
 
 		controller.Start();
 		Assert.AreEqual(ControllerState.Heating, controller.Snapshot.State);
-		controller.Tick(TimeSpan.FromSeconds(2));
+
+		controller.ApplyObservation(target, TimeSpan.Zero);
 		Assert.AreEqual(ControllerState.Holding, controller.Snapshot.State);
-		controller.Tick(TimeSpan.FromSeconds(2.99));
+		controller.ApplyObservation(target, TimeSpan.FromSeconds(2.99));
 		Assert.AreEqual(ControllerState.Holding, controller.Snapshot.State);
-		controller.Tick(TimeSpan.FromSeconds(0.01));
+		controller.ApplyObservation(target, TimeSpan.FromSeconds(0.01));
 		Assert.AreEqual(ControllerState.Cooling, controller.Snapshot.State);
-		controller.Tick(TimeSpan.FromSeconds(2));
+		controller.ApplyObservation(ambient, TimeSpan.Zero);
 
 		Assert.AreEqual(ControllerState.Complete, controller.Snapshot.State);
 		CollectionAssert.AreEqual(
 			new[] { "Start", "Phase: Precheck", "Phase: Heating", "Phase: Holding", "Phase: Cooling", "Phase: Complete" },
 			controller.EventHistory.Select(entry => entry.Event).ToArray());
+	}
+
+	// 목적: external observation 없이 timer tick만 발생할 때 Core가 plant temperature를 합성하거나 thermal phase timer를 진행하지 않는지 검증한다.
+	// 예상 결과: Heating, Holding, Cooling의 온도와 phase는 Tick 후에도 마지막 external observation state로 유지된다.
+	// 완료 조건: Core의 5°C/s heating/cooling 및 configured-duration Tick-only Holding → Cooling transition이 제거된 뒤 test가 통과한다.
+	[TestMethod]
+	public void Tick_WithoutExternalObservation_DoesNotSynthesizeTemperatureOrAdvancePhase()
+	{
+		var holdDuration = TimeSpan.FromSeconds(3);
+		var controller = new ThermalController(
+			new Recipe("Test", targetTemperature: 30d, safetyTemperature: 35d, holdDuration: holdDuration),
+			SimulationSettings.Illustrative);
+		var observation = new ThermalObservation(
+			isDoorOpen: false,
+			sensorHealthy: true,
+			currentTemperature: 20d);
+		var targetObservation = new ThermalObservation(
+			isDoorOpen: false,
+			sensorHealthy: true,
+			currentTemperature: 30d);
+		controller.ApplyObservation(observation, TimeSpan.Zero);
+		controller.Start();
+
+		controller.Tick(TimeSpan.FromSeconds(2));
+
+		Assert.AreEqual(ControllerState.Heating, controller.Snapshot.State);
+		Assert.AreEqual(20d, controller.Snapshot.CurrentTemperature);
+
+		controller.ApplyObservation(targetObservation, TimeSpan.Zero);
+		Assert.AreEqual(ControllerState.Holding, controller.Snapshot.State);
+
+		controller.Tick(holdDuration);
+
+		Assert.AreEqual(ControllerState.Holding, controller.Snapshot.State);
+		Assert.AreEqual(30d, controller.Snapshot.CurrentTemperature);
+
+		controller.ApplyObservation(targetObservation, holdDuration);
+		Assert.AreEqual(ControllerState.Cooling, controller.Snapshot.State);
+
+		controller.Tick(TimeSpan.FromSeconds(2));
+
+		Assert.AreEqual(ControllerState.Cooling, controller.Snapshot.State);
+		Assert.AreEqual(30d, controller.Snapshot.CurrentTemperature);
 	}
 
 	[TestMethod]
