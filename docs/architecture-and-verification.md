@@ -1,12 +1,44 @@
 # 아키텍처와 검증 기록
 
-## 1. 목표와 경계
+## 1. 문서 상태와 증거 경계
 
-이 프로젝트는 C# WinForms로 만든 **가상 열처리 챔버 제어 시뮬레이터**다. 상태 전이와 안전 조건을 UI에서 분리해 테스트 가능한 규칙으로 다룬다.
+이 문서는 `2026-08-16` Windows authoritative repository를 기준으로 작성한 architecture/progress record다. 아래 네 상태를 섞지 않는다.
 
-이 저장소는 실제 챔버·PLC·산업 통신·센서·히터와 연결되지 않는다. 온도, 시간, Recipe, 안전 한계는 동작을 설명하기 위한 예시값이며, 실제 공정 조건이나 장비 제어 값을 의미하지 않는다.
+| evidence state | 의미 |
+| --- | --- |
+| Completed | local commit과 해당 source의 검증 근거가 있다. |
+| In progress — reviewed but uncommitted | source·test·review 후보는 있으나 아직 local commit이 없다. |
+| Planned | roadmap만 존재하며 source가 없다. |
+| Historical baseline | 과거 source SHA와 연결된 화면 또는 test evidence다. 현재 wiring의 증거가 아니다. |
 
-## 2. 책임 분리
+P3-T2 atomic observation mapping의 source anchor는 `3a7398d` (`feat: map PLC observations atomically`)다. focused Core 3/3, focused Application 3/3, Debug build 0 warnings/0 errors, full regression 65/65, Windows-byte independent source review를 통과했다. 뒤따르는 documentation checkpoint는 의도적으로 별도 commit으로 남긴다.
+
+## 2. 범위와 안전 한계
+
+이 프로젝트는 C# WinForms 기반의 **가상 열처리 챔버 제어 시뮬레이터**다. 실제 챔버, 생산 PLC, 산업 통신, 온도 센서, 히터와 연결하지 않는다. 수치와 fault는 설명·테스트를 위한 illustrative simulation 값이다.
+
+PC application의 Door/temperature/sensor interlock은 software policy demonstration이다. E-Stop, Safety PLC, hardware safety circuit, human safety를 보장하거나 대체한다고 주장하지 않는다.
+
+## 3. 구현 상태
+
+| 범위 | 상태 | source / verification evidence |
+| --- | --- | --- |
+| P0 baseline UI/Core | Completed | `1497a06`, `40716fa`; 27 tests, app-only IDLE baseline capture |
+| P1 PLC contracts | Completed | `587b519`까지; full regression 48/48 |
+| P2 Virtual PLC | Completed | `1935c5f`, `64eb20d`; full regression 59/59, two independent reviews PASS |
+| P3-T1 read-only coordinator | Completed | `54e8303`; full regression 61/61, independent review PASS |
+| P3-T2 atomic observation mapping | Completed | `3a7398d`; focused Core 3/3, Application 3/3, Debug build 0 warnings/0 errors, full regression 65/65; manifest `1f65b461e9a08e08f0559b9018f2af27a6e600decf53114c756221283f42a090` PASS |
+| P3-T3 plant simulation 분리 | Planned | `ThermalController.Tick`의 synthetic temperature 변경 제거 |
+| P3-T4 UI composition | Planned | Form/Presenter와 Coordinator/Virtual PLC 연결, cancellation/dispose 경계 |
+| P4 command/ACK lifecycle | Planned | output write, matching ACK, timeout, duplicate prevention |
+
+P3-T2의 65/65는 `3a7398d` source commit에 bound된 verification result다. P3-T3/T4/P4의 completion evidence나 전체 release claim으로 사용하지 않는다.
+
+## 4. 현재 존재하는 두 실행 경계
+
+### 4.1 P0 UI baseline — historical runtime path
+
+WinForms runtime은 아직 P3-T4 전의 direct Presenter/Core wiring을 사용한다.
 
 ```text
 Form1
@@ -17,56 +49,126 @@ Form1
   → Form1 rendering
 ```
 
-| 구성 요소 | 책임 | 하지 않는 일 |
+`Form1`은 버튼·ComboBox·Timer event를 발생시키고 snapshot/event log를 렌더링한다. `EquipmentPresenter`는 view request를 Core 호출로 연결한다. `ThermalController`만 safety policy를 판단한다.
+
+이 path의 screenshots와 `docs/demo/SCENARIOS.md`는 P0 historical baseline evidence다. Application coordinator 또는 Virtual PLC가 WinForms runtime에 이미 연결됐다는 증거가 아니다.
+
+### 4.2 P1/P2/P3 Application boundary — implemented source path
+
+```text
+EquipmentCoordinator (Application)
+  ├→ ThermalController (Core safety/process authority)
+  └→ IPlcClient (PLC I/O port)
+       ├→ VirtualPlcClient (implemented)
+       └→ ModbusTcpPlcClient (P8 optional, not implemented)
+```
+
+`ChamberControlSimulator.Application`은 `Core`와 `Plc.Abstractions`만 reference한다. `Plc.Simulation`, WinForms, Modbus protocol package를 reference하지 않는다. 구체 adapter 선택은 future composition root의 책임이다.
+
+## 5. 구성 요소별 책임
+
+| 구성 요소 | 현재 책임 | 하지 않는 일 |
 | --- | --- | --- |
-| `Form1` | 버튼·ComboBox·Timer 이벤트 발생, Stopwatch elapsed 전달, Snapshot과 Event Log 표시 | Alarm·Recovery·Reset 안전 판단 |
-| `IEquipmentView` | View 입력 이벤트와 View 갱신 메서드 계약 | Core 규칙 소유 |
-| `EquipmentPresenter` | View 이벤트를 Controller 호출로 연결하고 결과를 View에 반영 | 상태 전이·인터락 직접 결정 |
-| `ThermalController` | 상태 전이, Door 인터락, 과온, SensorTimeout, Alarm, Recovery, Reset, Recipe 선택 정책, Event History | WinForms Control 접근 |
+| `Form1` | UI event 발생과 snapshot/event log rendering | Alarm, Recovery, Reset 판단 / PLC I/O |
+| `IEquipmentView` | View input/output contract | Core 또는 communication policy 소유 |
+| `EquipmentPresenter` | baseline View event와 Core result 연결 | retry, reconnect, PLC protocol 판단 |
+| `EquipmentCoordinator` | connect/read/freshness policy와 PLC input → Core mapping | WinForms Control 접근, simulation concrete type 판별, semantic ACK completion 판단 |
+| `ThermalController` | phase, interlock, pending alarm, Recovery/Reset, recipe, event history | socket, Modbus address, async I/O, system clock 직접 접근 |
+| `IPlcClient` | connect/disconnect/read/write contract | UI/Core dependency, fault injection, reconnect policy |
+| `VirtualPlcClient` | deterministic virtual transport/plant state, explicit `Advance`, delayed/suppressed ACK, fault simulation | production equipment 정확도 주장 |
+| `VirtualPlcSimulationControl` | test/demo용 door/sensor/temp/fault virtual control | `IPlcClient` public contract 노출 |
 
-`ThermalController`가 안전 상태를 최종 판단한다. Form이나 Presenter는 조건을 해석해 Alarm을 임의로 해제하지 않는다.
+## 6. 실제 PLC I/O contract
 
-## 3. 시간 흐름
+```csharp
+public interface IPlcClient : IAsyncDisposable
+{
+    PlcConnectionState ConnectionState { get; }
 
-WinForms `Timer`는 Tick을 발생시키는 스케줄러 역할만 한다. 실제 Tick 간격은 UI 부하에 따라 달라질 수 있으므로 `Form1`은 `Stopwatch.Elapsed`를 측정해 `TimerTickedEventArgs`로 Presenter에 전달한다. Presenter는 그 값을 `ThermalController.Tick(TimeSpan elapsed)`으로 전달한다.
-
-```text
-WinForms Timer Tick
-  → Stopwatch.Elapsed
-  → TimerTickedEventArgs
-  → EquipmentPresenter
-  → ThermalController.Tick(TimeSpan)
-  → ControllerSnapshot / EventHistory
-  → Form1 rendering
+    Task ConnectAsync(CancellationToken cancellationToken);
+    Task DisconnectAsync(CancellationToken cancellationToken);
+    Task<PlcInputSnapshot> ReadInputsAsync(CancellationToken cancellationToken);
+    Task<PlcWriteReceipt> WriteOutputsAsync(
+        PlcOutputCommand command,
+        CancellationToken cancellationToken);
+}
 ```
 
-Core는 온도 변화·Holding 누적·SensorTimeout을 `TimeSpan` 기준으로 계산한다. `Thread.Sleep`, UI thread block, `while` 기반 UI 제어 루프는 사용하지 않는다.
+### Input observation
 
-## 4. 상태 전이
+`PlcInputSnapshot`은 immutable validated value다.
 
-정상 경로는 아래와 같다.
+| field | 의미 |
+| --- | --- |
+| `DoorClosed` | physical/simulated door input |
+| `SensorHealthy` | sensor feedback health input |
+| `CurrentTemperature` | finite observed temperature |
+| `MachineState` | `Idle`, `Running`, `Faulted` PLC machine observation |
+| `AcknowledgedCommandId` | later semantic acknowledgement observation; `0`은 아직 ACK 없음 |
+| `ObservationSequence` | producer-issued monotonic freshness identity |
+
+`ObservationSequence`은 system wall clock이 아니라 producer가 발행한 freshness identity다. coordinator는 non-increasing value를 stale observation으로 취급한다.
+
+### Output receipt와 semantic ACK의 분리
+
+`PlcOutputCommand`는 positive `CommandId`와 `PlcCommandKind` (`Start`, `Stop`, `Reset`)를 가진 typed one-shot command다. `PlcWriteReceipt`는 same command ID와 `Written` 또는 `Failed` transport result만 표현한다.
 
 ```text
-Idle → Precheck → Heating → Holding → Cooling → Complete
+PlcWriteReceipt.TransportStatus == Written
+≠ PLC program accepted the command
+≠ equipment entered the target state
+≠ semantic ACK
 ```
 
-- `Idle`: Recipe 선택이 가능한 준비 상태
-- `Precheck`: 시작 전 조건을 점검하는 전이 단계
-- `Heating`: 목표 온도까지 가상 온도를 올리는 단계
-- `Holding`: 목표 도달 후 Recipe의 `HoldDuration`만큼 유지하는 단계
-- `Cooling`: ambient temperature까지 가상 온도를 내리는 단계
-- `Complete`: 정상 공정이 끝난 상태
+P4에서 only matching later `AcknowledgedCommandId`가 command completion을 뜻하도록 구현할 예정이다. P3-T1/T2 coordinator는 `WriteOutputsAsync`를 호출하지 않으며 ACK를 semantic result로 해석하지 않는다.
 
-`Holding`은 기본 3초다. Controller는 Holding 진입 때 누적 시간을 0으로 초기화하고, 이후 `Tick(elapsed)`마다 elapsed를 더한다. 누적값이 `HoldDuration` 이상일 때만 Cooling으로 전이한다. 화면·Timer·사용자 입력은 Holding 중에도 계속 반응한다.
+## 7. P3 Coordinator cycle의 현재 범위
 
-## 5. Alarm과 Recovery
+### P3-T1 — committed
 
-운전 단계에서 안전 조건이 깨지면 정상 전이를 중단하고 Alarm으로 전이한다.
+```text
+CycleAsync(elapsed)
+  → disconnected transport이면 ConnectAsync
+  → ReadInputsAsync
+  → non-increasing ObservationSequence이면 StaleObservation
+  → fresh snapshot을 Core에 반영
+  → EquipmentCycleResult 반환
+  → WriteOutputsAsync 호출 없음
+```
+
+P3-T1은 one-cycle read synchronization slice다. polling loop, retry/backoff, command queue, output write는 포함하지 않는다.
+
+### P3-T2 — committed atomic observation mapping
+
+P3-T2 (`3a7398d`)는 `DoorClosed`, `SensorHealthy`, `CurrentTemperature`, `elapsed`를 Core-owned `ThermalObservation`으로 묶어 적용한다.
+
+```text
+PlcInputSnapshot
+  → EquipmentCoordinator
+  → ThermalObservation
+  → ThermalController.ApplyObservation(...)
+```
+
+P3-T2 tests cover DoorOpen interlock, OverTemperature, SensorTimeout, fresh input 이후 sensor recovery를 Core policy로 검증한다. `ThermalObservation`은 PLC type을 reference하지 않는다.
+
+## 8. 시간과 plant ownership
+
+P2 `VirtualPlcClient`는 wall clock이나 hidden timer 없이 `VirtualPlcSimulationControl.Advance(TimeSpan)`에서만 virtual time을 전진한다. door/sensor/temperature fault control도 simulation boundary에만 있다.
+
+아직 P3-T3 전이므로 legacy `ThermalController.Tick`은 synthetic temperature change를 가진다. 따라서 현재 정확한 표현은 다음이다.
+
+- Virtual PLC는 deterministic plant/input simulation을 구현했다.
+- P3-T2 (`3a7398d`)는 observed input을 Core에 atomic mapping한다.
+- **Core에서 plant simulation을 완전히 제거한 상태는 아직 아니다.**
+
+P3-T3에서는 Core가 observed temperature와 elapsed로 phase policy만 판단하도록 legacy synthetic heat/cool mutation을 제거한다.
+
+## 9. Alarm / Recovery policy
 
 ```text
 Active phase
   → Alarm
-  → 원인 해소 + Acknowledge + 모든 pending alarm clear
+  → cause cleared + Acknowledge + all pending alarms cleared
   → Recovery
   → Reset
   → Idle
@@ -74,49 +176,30 @@ Active phase
 
 | Alarm | 발생 조건 | Recovery 전 조건 |
 | --- | --- | --- |
-| `DoorOpen` | 활성 공정 중 Door가 열림 | Door를 닫고 Acknowledge |
-| `OverTemperature` | 현재 온도가 Recipe safety temperature 이상 | 온도를 safety temperature 미만으로 낮추고 Acknowledge |
-| `SensorTimeout` | feedback pause가 timeout 이상 지속 | feedback을 재개하고 fresh positive Tick 뒤 Acknowledge |
+| `DoorOpen` | active phase에서 door open | door close + Acknowledge |
+| `OverTemperature` | observed temperature가 safety limit 이상 | temperature가 safety limit 미만 + Acknowledge |
+| `SensorTimeout` | unhealthy feedback gap이 timeout 이상 | healthy fresh input + Acknowledge |
 
-Alarm 중 Stop 요청은 안전 상태를 우회하지 못한다. Reset은 Alarm을 즉시 지우는 동작이 아니다. Controller가 Recovery-ready라고 판단한 경우에만 Idle로 복귀한다.
+여러 alarm cause가 동시에 남을 수 있다. 하나만 해소해도 pending alarm이 남으면 Recovery로 진행하지 않는다.
 
-여러 Alarm 원인이 동시에 존재할 수 있다. Controller는 pending alarm을 집합으로 유지하며, 하나를 해소해도 다른 원인이 남아 있으면 Recovery로 진행하지 않는다. Recovery 중 원인이 재발하면 다시 Alarm으로 돌아간다.
+## 10. 검증 범위와 다음 evidence
 
-## 6. Recipe 선택 정책
+### 현재 tracked baseline evidence
 
-Recipe는 `Idle`에서만 선택할 수 있다. Heating·Holding·Cooling·Alarm·Recovery 중 선택 변경 요청이 들어와도, Core는 현재 Recipe를 유지한다. UI의 ComboBox 활성화 여부는 이 Core 결과를 반영할 뿐, 정책을 소유하지 않는다.
+- `docs/verification/baseline-v0.1.md`
+- `docs/verification/invariants.md`
+- `docs/demo/images/` 및 `docs/demo/SCENARIOS.md`의 P0 UI baseline captures
 
-## 7. 테스트-불변식 매핑
+### P3 source evidence
 
-### Core: 22 MSTest
+P1/P2/P3-T1의 local commit과 Windows build/test output, independent review bundles가 source/test provenance다. P3-T2는 [`p3-t2-atomic-observation.md`](verification/p3-t2-atomic-observation.md)에 `3a7398d`, exact commands, 65/65 result, source-review manifest를 기록한다.
 
-`ChamberControlSimulator.Core.Tests/ThermalControllerTests.cs`는 UI를 띄우지 않고 Controller의 규칙을 검증한다.
-
-| 대표 테스트 | 확인하는 불변식 |
-| --- | --- |
-| `Start_ValidRecipe_ProgressesThroughNormalPhasesToComplete` | 정상 상태 전이와 Holding duration 경계 |
-| `ReportTemperature_AtSafetyLimit_AlarmsUntilTemperatureIsBelowLimit` | safety limit 이상에서 Alarm, 미만이 될 때까지 해소 불가 |
-| `FeedbackPaused_PastTimeout_RequiresResumeAndFreshTickBeforeReset` | 재개 신호만으로는 부족하고 fresh Tick이 필요 |
-| `FeedbackPaused_AfterTimeout_DoesNotRepeatedlyReassertSensorTimeout` | 지속 fault가 Event History를 중복 오염하지 않음 |
-| `SelectRecipe_WhenHeating_KeepsActiveRecipe` | 운전 중 Recipe 변경은 Core가 거부 |
-
-### Presenter: 5 MSTest
-
-`ChamberControlSimulator.Presentation.Tests/EquipmentPresenterTests.cs`는 `FakeEquipmentView`를 이용해 화면을 띄우지 않고 이벤트 전달과 갱신 계약을 검증한다.
-
-| 대표 테스트 | 확인하는 계약 |
-| --- | --- |
-| `StartRequested_RendersHeatingSnapshotAndNewEventHistory` | Start 요청이 Controller 호출과 View 갱신으로 연결됨 |
-| `TimerTicked_ForwardsElapsedTimeToControllerAndRefreshesView` | Stopwatch elapsed가 Controller까지 전달되고 View가 갱신됨 |
-| `RecipeSelectionRequested_WhenIdle_RendersSelectedRecipe` | Idle 선택 요청 반영 |
-| `RecipeSelectionRequested_WhenHeating_RendersOriginalRecipe` | Heating 선택 요청 거부 결과 반영 |
-
-`EquipmentPresenter`를 public API로 넓히지 않았다. `InternalsVisibleTo("ChamberControlSimulator.Presentation.Tests")`로 테스트 assembly에만 internal 접근을 허용한다.
-
-## 8. 재현 명령
+### 재현 명령
 
 ```powershell
 dotnet restore ChamberControlSimulator.slnx
 dotnet build ChamberControlSimulator.slnx --configuration Debug --no-restore
 dotnet test ChamberControlSimulator.slnx --configuration Debug --no-build --no-restore
 ```
+
+P3-T2 result는 `3a7398d` source commit과 `docs/verification/p3-t2-atomic-observation.md` receipt를 기준으로 재현한다.

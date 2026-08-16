@@ -1,5 +1,7 @@
 # 데모 시나리오
 
+> **Evidence status — P0 historical baseline:** 이 문서의 UI 흐름과 screenshots는 direct `Form1 → EquipmentPresenter → ThermalController` wiring에서 만든 baseline evidence다. `EquipmentCoordinator`와 P3-T2 atomic observation mapping은 source에 존재하지만(`3a7398d`), 아직 WinForms composition root에 연결되지 않았다. 따라서 이 이미지와 절차를 Coordinator runtime, PLC command write, semantic ACK evidence로 해석하면 안 된다. P3-T4/P6에서 exact source SHA에 bound된 새 runtime evidence를 추가한다.
+
 이 문서는 UI에서 재현할 수 있는 흐름과 자동 테스트 근거를 함께 기록한다. 이 프로젝트는 가상 시뮬레이터이며 실제 장비·PLC·온도 센서·히터를 제어하지 않는다.
 
 실행 전 Visual Studio에서 `ChamberControlSimulator.slnx`를 열고 `ChamberControlSimulator`를 시작 프로젝트로 설정한다.
