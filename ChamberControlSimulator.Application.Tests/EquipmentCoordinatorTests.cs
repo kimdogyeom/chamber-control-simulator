@@ -7,6 +7,28 @@ namespace ChamberControlSimulator.Application.Tests;
 [TestClass]
 public sealed class EquipmentCoordinatorTests
 {
+	// 목적: open-door PLC input이 coordinator의 Core observation mapping을 거쳐 active interlock alarm이 되는지 검증한다.
+	// 예상 결과: Heating controller의 cycle result와 controller snapshot은 DoorOpen alarm을 나타내며 output write는 없다.
+	// 완료 조건: coordinator가 PLC type을 Core에 전달하지 않고 one-cycle safety mapping을 test로 통과한다.
+	[TestMethod]
+	public async Task CycleAsync_WhenDoorIsOpenDuringHeating_MapsInputToDoorOpenAlarmWithoutWrite()
+	{
+		var controller = new ThermalController(
+			new Recipe("Test", targetTemperature: 30d, safetyTemperature: 35d),
+			SimulationSettings.Illustrative);
+		controller.Start();
+		var plc = new RecordingPlcClient(
+			new PlcInputSnapshot(false, true, 20d, PlcMachineState.Idle, 0, 0));
+		await using var coordinator = new EquipmentCoordinator(controller, plc);
+
+		var result = await coordinator.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+
+		Assert.AreEqual(EquipmentCycleDisposition.Completed, result.Disposition);
+		Assert.AreEqual(ControllerState.Alarm, result.ControllerSnapshot.State);
+		Assert.AreEqual(AlarmKind.DoorOpen, result.ControllerSnapshot.ActiveAlarm);
+		Assert.AreEqual(0, plc.WriteCallCount);
+	}
+
 	// 목적: producer observation sequence가 증가하지 않으면 stale input이 Core 상태를 재적용하지 않는지 검증한다.
 	// 예상 결과: 두 번째 cycle은 StaleObservation이고 첫 accepted door observation으로 만든 controller snapshot이 유지된다.
 	// 완료 조건: initial sequence 0/이후 sequence의 strict-increase policy가 output write 없이 test로 통과한다.

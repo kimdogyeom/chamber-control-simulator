@@ -101,6 +101,70 @@ public sealed class ThermalController
 		TryMarkRecoveryReady();
 	}
 
+	public void ApplyObservation(
+		ThermalObservation observation,
+		TimeSpan elapsed)
+	{
+		ArgumentNullException.ThrowIfNull(observation);
+
+		if (elapsed < TimeSpan.Zero)
+		{
+			throw new ArgumentOutOfRangeException(nameof(elapsed));
+		}
+
+		_elapsed += elapsed;
+		_doorOpen = observation.IsDoorOpen;
+		_currentTemperature = observation.CurrentTemperature;
+
+		if (!observation.SensorHealthy && !_feedbackPaused)
+		{
+			_feedbackPaused = true;
+			_feedbackPausedElapsed = TimeSpan.Zero;
+			_hasFreshFeedbackTick = false;
+		}
+		else if (observation.SensorHealthy && _feedbackPaused)
+		{
+			_feedbackPaused = false;
+		}
+
+		if (IsSafetyMonitored())
+		{
+			if (_doorOpen)
+			{
+				RaiseAlarm(AlarmKind.DoorOpen);
+			}
+
+			if (_currentTemperature >= _recipe.SafetyTemperature)
+			{
+				RaiseAlarm(AlarmKind.OverTemperature);
+			}
+		}
+
+		if (_feedbackPaused && IsSafetyMonitored())
+		{
+			_feedbackPausedElapsed += elapsed;
+			if (_feedbackPausedElapsed >= _settings.FeedbackTimeout)
+			{
+				RaiseAlarm(AlarmKind.SensorTimeout);
+			}
+			else
+			{
+				PublishSnapshot();
+			}
+
+			return;
+		}
+
+		if (!_feedbackPaused && elapsed > TimeSpan.Zero && _pendingAlarms.Contains(AlarmKind.SensorTimeout))
+		{
+			_hasFreshFeedbackTick = true;
+		}
+
+		TryMarkRecoveryReady();
+		AdvancePhaseFromObservedTemperature(elapsed);
+		PublishSnapshot();
+	}
+
 	public void Stop()
 	{
 		if (_state is ControllerState.Idle or ControllerState.Alarm or ControllerState.Recovery) return;
@@ -235,6 +299,32 @@ public sealed class ThermalController
 		_state = ControllerState.Recovery;
 		AddEvent("Recovery ready", _activeAlarm);
 		PublishSnapshot();
+	}
+
+	private void AdvancePhaseFromObservedTemperature(TimeSpan elapsed)
+	{
+		switch (_state)
+		{
+			case ControllerState.Heating:
+				if (_currentTemperature >= _recipe.TargetTemperature)
+				{
+					TransitionTo(ControllerState.Holding);
+				}
+				break;
+			case ControllerState.Holding:
+				_holdingElapsed += elapsed;
+				if (_holdingElapsed >= _recipe.HoldDuration)
+				{
+					TransitionTo(ControllerState.Cooling);
+				}
+				break;
+			case ControllerState.Cooling:
+				if (_currentTemperature <= _settings.AmbientTemperature)
+				{
+					TransitionTo(ControllerState.Complete);
+				}
+				break;
+		}
 	}
 
 	private bool IsSafetyMonitored() => IsActivePhase() || _state is ControllerState.Alarm or ControllerState.Recovery;

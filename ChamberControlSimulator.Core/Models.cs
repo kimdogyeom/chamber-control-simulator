@@ -95,6 +95,30 @@ public sealed record SimulationSettings
 	public static SimulationSettings Illustrative { get; } = new(20, TimeSpan.FromSeconds(3));
 }
 
+public sealed record ThermalObservation
+{
+	public ThermalObservation(
+		bool isDoorOpen,
+		bool sensorHealthy,
+		double currentTemperature)
+	{
+		if (!double.IsFinite(currentTemperature))
+		{
+			throw new ArgumentOutOfRangeException(nameof(currentTemperature));
+		}
+
+		IsDoorOpen = isDoorOpen;
+		SensorHealthy = sensorHealthy;
+		CurrentTemperature = currentTemperature;
+	}
+
+	public bool IsDoorOpen { get; }
+
+	public bool SensorHealthy { get; }
+
+	public double CurrentTemperature { get; }
+}
+
 public sealed record ControllerSnapshot(
 	ControllerState State,
 	string RecipeName,

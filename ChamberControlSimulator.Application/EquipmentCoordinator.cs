@@ -67,18 +67,12 @@ public sealed class EquipmentCoordinator : IAsyncDisposable
 			}
 
 			_lastAcceptedObservationSequence = input.ObservationSequence;
-			_controller.SetDoorOpen(!input.DoorClosed);
-			_controller.ReportTemperature(input.CurrentTemperature);
-			if (input.SensorHealthy)
-			{
-				_controller.ResumeFeedback();
-			}
-			else
-			{
-				_controller.PauseFeedback();
-			}
-
-			_controller.Tick(elapsed);
+			_controller.ApplyObservation(
+				new ThermalObservation(
+					isDoorOpen: !input.DoorClosed,
+					sensorHealthy: input.SensorHealthy,
+					currentTemperature: input.CurrentTemperature),
+				elapsed);
 
 			return new EquipmentCycleResult(
 				EquipmentCycleDisposition.Completed,
