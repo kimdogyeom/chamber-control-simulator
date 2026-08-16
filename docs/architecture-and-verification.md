@@ -13,6 +13,8 @@
 
 P3-T2 atomic observation mapping의 source anchor는 `3a7398d` (`feat: map PLC observations atomically`)다. focused Core 3/3, focused Application 3/3, Debug build 0 warnings/0 errors, full regression 65/65, Windows-byte independent source review를 통과했다. 뒤따르는 documentation checkpoint는 의도적으로 별도 commit으로 남긴다.
 
+P3-T3 Core plant simulation separation의 source anchor는 `b949e6c` (`feat: separate Core plant temperature policy`)다. focused Tick contract 1/1, Debug build 0 warnings/0 errors, full regression 66/66, Windows-byte independent source review를 통과했다. 이 문서와 P3-T3 verification receipt도 source commit 뒤의 별도 documentation checkpoint로 남긴다.
+
 ## 2. 범위와 안전 한계
 
 이 프로젝트는 C# WinForms 기반의 **가상 열처리 챔버 제어 시뮬레이터**다. 실제 챔버, 생산 PLC, 산업 통신, 온도 센서, 히터와 연결하지 않는다. 수치와 fault는 설명·테스트를 위한 illustrative simulation 값이다.
@@ -28,11 +30,11 @@ PC application의 Door/temperature/sensor interlock은 software policy demonstra
 | P2 Virtual PLC | Completed | `1935c5f`, `64eb20d`; full regression 59/59, two independent reviews PASS |
 | P3-T1 read-only coordinator | Completed | `54e8303`; full regression 61/61, independent review PASS |
 | P3-T2 atomic observation mapping | Completed | `3a7398d`; focused Core 3/3, Application 3/3, Debug build 0 warnings/0 errors, full regression 65/65; manifest `1f65b461e9a08e08f0559b9018f2af27a6e600decf53114c756221283f42a090` PASS |
-| P3-T3 plant simulation 분리 | Planned | `ThermalController.Tick`의 synthetic temperature 변경 제거 |
+| P3-T3 plant simulation 분리 | Completed | `b949e6c`; focused Tick contract 1/1, Debug build 0 warnings/0 errors, full regression 66/66; manifest `e7e94da9061b06428e9370c3fdbf1af28a28e2d5f451070d8de0e292039f540f` PASS |
 | P3-T4 UI composition | Planned | Form/Presenter와 Coordinator/Virtual PLC 연결, cancellation/dispose 경계 |
 | P4 command/ACK lifecycle | Planned | output write, matching ACK, timeout, duplicate prevention |
 
-P3-T2의 65/65는 `3a7398d` source commit에 bound된 verification result다. P3-T3/T4/P4의 completion evidence나 전체 release claim으로 사용하지 않는다.
+P3-T2의 65/65는 `3a7398d` source commit에, P3-T3의 66/66은 `b949e6c` source commit에 각각 bound된 verification result다. P3-T4/P4의 completion evidence나 전체 release claim으로 사용하지 않는다.
 
 ## 4. 현재 존재하는 두 실행 경계
 
@@ -155,13 +157,14 @@ P3-T2 tests cover DoorOpen interlock, OverTemperature, SensorTimeout, fresh inpu
 
 P2 `VirtualPlcClient`는 wall clock이나 hidden timer 없이 `VirtualPlcSimulationControl.Advance(TimeSpan)`에서만 virtual time을 전진한다. door/sensor/temperature fault control도 simulation boundary에만 있다.
 
-아직 P3-T3 전이므로 legacy `ThermalController.Tick`은 synthetic temperature change를 가진다. 따라서 현재 정확한 표현은 다음이다.
+P3-T3 (`b949e6c`)에서 legacy `ThermalController.Tick`의 synthetic temperature change와 Tick-only normal phase progression을 제거했다. 따라서 현재 정확한 표현은 다음이다.
 
-- Virtual PLC는 deterministic plant/input simulation을 구현했다.
-- P3-T2 (`3a7398d`)는 observed input을 Core에 atomic mapping한다.
-- **Core에서 plant simulation을 완전히 제거한 상태는 아직 아니다.**
+- P2 `VirtualPlcClient`는 deterministic illustrative plant/input simulation을 구현한다.
+- P3-T2 (`3a7398d`)는 fresh PLC input을 Core-owned `ThermalObservation`으로 atomic mapping한다.
+- P3-T3 (`b949e6c`)는 observed temperature와 elapsed를 받는 `ApplyObservation(...)`에서만 normal phase policy가 진행되게 한다.
+- `Tick`은 SensorTimeout/Recovery를 위한 legacy feedback timing을 보존하지만 physical temperature, Holding elapsed, Heating/Holding/Cooling phase를 진행하지 않는다.
 
-P3-T3에서는 Core가 observed temperature와 elapsed로 phase policy만 판단하도록 legacy synthetic heat/cool mutation을 제거한다.
+P3-T3은 Core source boundary다. P3-T4 전에는 legacy WinForms path가 direct Presenter/Core wiring과 manual simulation input을 유지하므로, UI runtime이 Virtual PLC/Coordinator observation을 end-to-end로 사용한다고 주장하지 않는다.
 
 ## 9. Alarm / Recovery policy
 
@@ -192,7 +195,7 @@ Active phase
 
 ### P3 source evidence
 
-P1/P2/P3-T1의 local commit과 Windows build/test output, independent review bundles가 source/test provenance다. P3-T2는 [`p3-t2-atomic-observation.md`](verification/p3-t2-atomic-observation.md)에 `3a7398d`, exact commands, 65/65 result, source-review manifest를 기록한다.
+P1/P2/P3-T1의 local commit과 Windows build/test output, independent review bundles가 source/test provenance다. P3-T2는 [`p3-t2-atomic-observation.md`](verification/p3-t2-atomic-observation.md)에 `3a7398d`, exact commands, 65/65 result, source-review manifest를 기록한다. P3-T3는 [`p3-t3-core-plant-separation.md`](verification/p3-t3-core-plant-separation.md)에 `b949e6c`, focused Tick contract, 66/66 result, source-review manifest를 기록한다.
 
 ### 재현 명령
 
@@ -202,4 +205,4 @@ dotnet build ChamberControlSimulator.slnx --configuration Debug --no-restore
 dotnet test ChamberControlSimulator.slnx --configuration Debug --no-build --no-restore
 ```
 
-P3-T2 result는 `3a7398d` source commit과 `docs/verification/p3-t2-atomic-observation.md` receipt를 기준으로 재현한다.
+P3-T2 result는 `3a7398d` source commit과 `docs/verification/p3-t2-atomic-observation.md` receipt를 기준으로 재현한다. P3-T3 result는 `b949e6c` source commit과 `docs/verification/p3-t3-core-plant-separation.md` receipt를 기준으로 재현한다.

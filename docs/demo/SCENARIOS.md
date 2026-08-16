@@ -1,10 +1,10 @@
 # 데모 시나리오
 
-> **Evidence status — P0 historical baseline:** 이 문서의 UI 흐름과 screenshots는 direct `Form1 → EquipmentPresenter → ThermalController` wiring에서 만든 baseline evidence다. `EquipmentCoordinator`와 P3-T2 atomic observation mapping은 source에 존재하지만(`3a7398d`), 아직 WinForms composition root에 연결되지 않았다. 따라서 이 이미지와 절차를 Coordinator runtime, PLC command write, semantic ACK evidence로 해석하면 안 된다. P3-T4/P6에서 exact source SHA에 bound된 새 runtime evidence를 추가한다.
+> **Evidence status — P0 historical baseline:** 이 문서의 UI 흐름, Normal Cycle 절차, screenshots는 direct `Form1 → EquipmentPresenter → ThermalController` wiring에서 만든 P0 baseline evidence다. `EquipmentCoordinator`, P3-T2 atomic observation mapping(`3a7398d`), P3-T3 Core plant simulation separation(`b949e6c`)은 source에 존재하지만 아직 WinForms composition root에 연결되지 않았다. 특히 P3-T3 이후 legacy UI Timer의 `Tick`은 synthetic temperature나 normal phase를 진행하지 않으므로, 아래 Normal Cycle은 현재 UI에서 그대로 재현하는 절차가 아니다. 따라서 이 이미지와 절차를 Coordinator runtime, PLC/Virtual PLC observation runtime, PLC command write, semantic ACK, post-P3-T3 current UI evidence로 해석하면 안 된다. P3-T4/P6에서 exact source SHA에 bound된 새 runtime evidence를 추가한다.
 
-이 문서는 UI에서 재현할 수 있는 흐름과 자동 테스트 근거를 함께 기록한다. 이 프로젝트는 가상 시뮬레이터이며 실제 장비·PLC·온도 센서·히터를 제어하지 않는다.
+이 문서는 P0 baseline에서 재현한 UI 흐름과 당시 automated test identifier를 보존한다. 현재 source policy의 증거는 source-SHA-bound verification receipt를 사용하며, 이 문서의 historical procedure가 이를 대체하지 않는다. 이 프로젝트는 가상 시뮬레이터이며 실제 장비·PLC·온도 센서·히터를 제어하지 않는다.
 
-실행 전 Visual Studio에서 `ChamberControlSimulator.slnx`를 열고 `ChamberControlSimulator`를 시작 프로젝트로 설정한다.
+P0 capture 환경에서는 Visual Studio에서 `ChamberControlSimulator.slnx`를 열고 `ChamberControlSimulator`를 시작 프로젝트로 설정했다. 이 설정만으로는 P3-T3 이후 기존 automatic thermal progression을 현재 UI에서 재현할 수 없다.
 
 ## 공통 확인 항목
 
@@ -17,27 +17,39 @@
 
 캡처를 추가할 때는 앱 창만 포함하고, 다른 프로그램·바탕화면·개인 정보는 프레임에 넣지 않는다.
 
-## 1. 정상 공정과 Holding
+## 1. P0 historical normal cycle and Holding
 
-1. Recipe가 `Standard 250C`인지 확인한다.
-2. **Start**를 누른다.
-3. `Heating`을 거쳐 `Holding` badge가 보이는 동안 Event History를 확인한다.
-4. Holding은 기본 3초가 지난 뒤 `Cooling`으로 전이한다.
-5. ambient temperature에 도달하면 `Complete`가 보이는지 확인한다.
+아래 sequence, expected result, screenshot은 P3-T3 이전 direct UI baseline에서 기록한 historical evidence다. 현재 `b949e6c` source에서는 Presenter timer가 `Tick`만 호출하고, `Tick`은 plant temperature나 normal phase를 전진시키지 않는다. 따라서 아래 steps는 current UI reproduction procedure가 아니다.
 
-기대 결과:
+P0 capture sequence:
+
+1. Recipe가 `Standard 250C`인지 확인했다.
+2. **Start**를 눌렀다.
+3. Timer-driven synthetic progression으로 `Heating`과 `Holding` badge, Event History를 확인했다.
+4. 기본 3초 Holding 뒤 `Cooling` 전이를 확인했다.
+5. ambient temperature에서 `Complete`를 확인했다.
+
+P0 historical expected result:
 
 ```text
 Idle → Precheck → Heating → Holding → Cooling → Complete
 ```
 
-자동 근거:
+P0 historical automated identifier (current source에는 존재하지 않음):
 
 ```text
 Start_ValidRecipe_ProgressesThroughNormalPhasesToComplete
 ```
 
-### 화면 증거
+Current source policy proof (UI runtime evidence 아님):
+
+```text
+ApplyObservation_ValidObservedSequence_ProgressesThroughNormalPhasesToComplete
+```
+
+이 current Core test는 observed target, hold elapsed, ambient observation을 `ApplyObservation(...)`으로 제공해 phase sequence를 검증한다. P3-T4가 Coordinator/Virtual PLC observation을 WinForms composition root에 연결하기 전에는 이를 current UI flow나 screenshot evidence로 해석하지 않는다.
+
+### P0 화면 증거
 
 ![IDLE 기준선 — 앱 창만 포함](images/00-idle.png)
 
