@@ -79,7 +79,7 @@ dotnet test ChamberControlSimulator.slnx --configuration Debug --no-build --no-r
 
 ## Explicit nonclaims and remaining work
 
-- P3-T4 전까지 WinForms composition root는 Coordinator/Virtual PLC observation runtime에 연결되지 않는다. 기존 Form/Presenter의 manual simulation input과 P0 screenshots는 historical baseline evidence다.
+- 이 P3-T3 source anchor 당시에는 WinForms composition root가 Coordinator/Virtual PLC observation runtime에 연결되지 않았다. 이후 P3-T4 source `2e502fa`가 composition을 추가했으며, 그 별도 evidence는 [`p3-t4-winforms-observation-composition.md`](p3-t4-winforms-observation-composition.md)에 기록한다. 기존 P0 screenshots는 계속 historical baseline evidence다.
 - P4 전까지 output write, matching semantic ACK, timeout, late ACK, duplicate prevention은 구현되지 않았다.
 - Virtual PLC는 illustrative simulation이며 production PLC, Modbus TCP communication, semiconductor process behavior를 검증하지 않는다.
 - PC software policy는 E-Stop, Safety PLC, hardware safety circuit, human safety를 보장하거나 대체하지 않는다.
