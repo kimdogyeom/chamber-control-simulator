@@ -5,17 +5,27 @@ using ChamberControlSimulator.Core;
 
 namespace ChamberControlSimulator.Presentation
 {
-	internal sealed class EquipmentPresenter
+	internal sealed class EquipmentPresenter : IAsyncDisposable
 	{
 		private readonly IEquipmentView _view;
 		private readonly ThermalController _controller;
+		private readonly IEquipmentObservationRuntime _observationRuntime;
+		private readonly CancellationTokenSource _shutdown = new();
+		private readonly object _lifecycleLock = new();
+		private Task? _activeCycle;
+		private Task? _teardownTask;
+		private long _pendingElapsedTicks;
+		private int _cycleInProgress;
+		private int _isDisposed;
 
 		public EquipmentPresenter(
 			IEquipmentView view,
-			ThermalController controller)
+			ThermalController controller,
+			IEquipmentObservationRuntime observationRuntime)
 		{
 			_view = view ?? throw new ArgumentNullException(nameof(view));
 			_controller = controller ?? throw new ArgumentNullException(nameof(controller));
+			_observationRuntime = observationRuntime ?? throw new ArgumentNullException(nameof(observationRuntime));
 
 			_view.StartRequested += OnStartRequested;
 			_view.StopRequested += OnStopRequested;
@@ -25,11 +35,78 @@ namespace ChamberControlSimulator.Presentation
 			_view.ApplyTemperatureRequested += OnApplyTemperatureRequested;
 			_view.PauseFeedbackRequested += OnPauseFeedbackRequested;
 			_view.ResumeFeedbackRequested += OnResumeFeedbackRequested;
-			_view.TimerTicked += OnTimerTicked;
+			_view.ClosingRequested += OnClosingRequestedAsync;
+			_view.TimerTicked += OnTimerTickedAsync;
 			_view.RecipeSelectionRequested += OnRecipeSelectionRequested;
 
 			_view.ShowRecipeOptions(_controller.Recipes);
 			RefreshView();
+		}
+
+		public ValueTask DisposeAsync()
+		{
+			Task teardownTask;
+			lock (_lifecycleLock)
+			{
+				if (_teardownTask is null)
+				{
+					Interlocked.Exchange(ref _isDisposed, 1);
+					_shutdown.Cancel();
+					UnsubscribeViewEvents();
+					_teardownTask = TeardownAsync(_activeCycle);
+				}
+
+				teardownTask = _teardownTask;
+			}
+
+			return new ValueTask(teardownTask);
+		}
+
+		private async Task TeardownAsync(Task? activeCycle)
+		{
+			try
+			{
+				if (activeCycle is not null)
+				{
+					try
+					{
+						await activeCycle;
+					}
+					catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
+					{
+					}
+					catch (Exception exception)
+					{
+						System.Diagnostics.Trace.TraceError(exception.ToString());
+					}
+				}
+			}
+			finally
+			{
+				try
+				{
+					await _observationRuntime.DisposeAsync();
+				}
+				finally
+				{
+					_shutdown.Dispose();
+				}
+			}
+		}
+
+		private void UnsubscribeViewEvents()
+		{
+			_view.StartRequested -= OnStartRequested;
+			_view.StopRequested -= OnStopRequested;
+			_view.AcknowledgeRequested -= OnAcknowledgeRequested;
+			_view.ResetRequested -= OnResetRequested;
+			_view.DoorToggleRequested -= OnDoorToggleRequested;
+			_view.ApplyTemperatureRequested -= OnApplyTemperatureRequested;
+			_view.PauseFeedbackRequested -= OnPauseFeedbackRequested;
+			_view.ResumeFeedbackRequested -= OnResumeFeedbackRequested;
+			_view.ClosingRequested -= OnClosingRequestedAsync;
+			_view.TimerTicked -= OnTimerTickedAsync;
+			_view.RecipeSelectionRequested -= OnRecipeSelectionRequested;
 		}
 
 		private void RefreshView()
@@ -66,25 +143,25 @@ namespace ChamberControlSimulator.Presentation
 		{
 			var nextDoorState = !_controller.Snapshot.IsDoorOpen;
 
-			_controller.SetDoorOpen(nextDoorState);
+			_observationRuntime.SetDoorClosed(!nextDoorState);
 			RefreshView();
 		}
 
 		private void OnApplyTemperatureRequested(object? sender, EventArgs e)
 		{
-			_controller.ReportTemperature(_view.SimulatedTemperature);
+			_observationRuntime.SetCurrentTemperature(_view.SimulatedTemperature);
 			RefreshView();
 		}
 
 		private void OnPauseFeedbackRequested(object? sender, EventArgs e)
 		{
-			_controller.PauseFeedback();
+			_observationRuntime.SetSensorHealthy(false);
 			RefreshView();
 		}
 
 		private void OnResumeFeedbackRequested(object? sender, EventArgs e)
 		{
-			_controller.ResumeFeedback();
+			_observationRuntime.SetSensorHealthy(true);
 			RefreshView();
 		}
 
@@ -94,10 +171,92 @@ namespace ChamberControlSimulator.Presentation
 			RefreshView();
 		}
 
-		private void OnTimerTicked(object? sender, TimerTickedEventArgs e)
+		private Task OnClosingRequestedAsync() => DisposeAsync().AsTask();
+
+		private Task OnTimerTickedAsync(TimerTickedEventArgs e)
 		{
-			_controller.Tick(e.Elapsed);
-			RefreshView();
+			if (Volatile.Read(ref _isDisposed) != 0)
+			{
+				return Task.CompletedTask;
+			}
+
+			Interlocked.Add(ref _pendingElapsedTicks, e.Elapsed.Ticks);
+			if (Interlocked.CompareExchange(ref _cycleInProgress, 1, 0) != 0)
+			{
+				return Task.CompletedTask;
+			}
+
+			TaskCompletionSource<bool>? activeCycleCompletion = null;
+			try
+			{
+				lock (_lifecycleLock)
+				{
+					if (_teardownTask is not null)
+					{
+						Volatile.Write(ref _cycleInProgress, 0);
+						return Task.CompletedTask;
+					}
+
+					var elapsed = TimeSpan.FromTicks(Interlocked.Exchange(ref _pendingElapsedTicks, 0));
+					activeCycleCompletion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+					_activeCycle = activeCycleCompletion.Task;
+					var activeCycle = _observationRuntime.CycleAsync(elapsed, _shutdown.Token);
+					return CompleteCycleAsync(activeCycle, activeCycleCompletion);
+				}
+			}
+			catch (Exception exception)
+			{
+				if (activeCycleCompletion is not null)
+				{
+					lock (_lifecycleLock)
+					{
+						if (ReferenceEquals(_activeCycle, activeCycleCompletion.Task))
+						{
+							_activeCycle = null;
+						}
+					}
+
+					activeCycleCompletion.TrySetResult(true);
+				}
+
+				System.Diagnostics.Trace.TraceError(exception.ToString());
+				Volatile.Write(ref _cycleInProgress, 0);
+				return Task.CompletedTask;
+			}
+		}
+
+		private async Task CompleteCycleAsync(
+			Task activeCycle,
+			TaskCompletionSource<bool> activeCycleCompletion)
+		{
+			try
+			{
+				await activeCycle;
+				if (Volatile.Read(ref _isDisposed) == 0)
+				{
+					RefreshView();
+				}
+			}
+			catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
+			{
+			}
+			catch (Exception exception)
+			{
+				System.Diagnostics.Trace.TraceError(exception.ToString());
+			}
+			finally
+			{
+				lock (_lifecycleLock)
+				{
+					if (ReferenceEquals(_activeCycle, activeCycleCompletion.Task))
+					{
+						_activeCycle = null;
+					}
+				}
+
+				Volatile.Write(ref _cycleInProgress, 0);
+				activeCycleCompletion.TrySetResult(true);
+			}
 		}
 	}
 }

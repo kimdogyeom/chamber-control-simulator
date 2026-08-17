@@ -1,5 +1,7 @@
-using ChamberControlSimulator.Presentation;
+using ChamberControlSimulator.Application;
 using ChamberControlSimulator.Core;
+using ChamberControlSimulator.Plc.Simulation;
+using ChamberControlSimulator.Presentation;
 
 namespace ChamberControlSimulator
 {
@@ -9,7 +11,7 @@ namespace ChamberControlSimulator
 		///  The main entry point for the application.
 		/// </summary>
 		[STAThread]
-		static void Main()
+		static async Task Main()
 		{
 			// To customize application configuration such as set high DPI settings or default font,
 			// see https://aka.ms/applicationconfiguration.
@@ -25,13 +27,29 @@ namespace ChamberControlSimulator
 				recipes,
 				SimulationSettings.Illustrative);
 
-			var form = new Form1();
+			var virtualPlc = new VirtualPlcClient(VirtualPlcOptions.Illustrative);
+			var coordinator = new EquipmentCoordinator(controller, virtualPlc);
 
-			var presenter = new EquipmentPresenter(
+			using var form = new Form1();
+			var observationRuntime = CreateObservationRuntime(coordinator, virtualPlc);
+			await using var presenter = new EquipmentPresenter(
 				form,
-				controller);
+				controller,
+				observationRuntime);
 
-			Application.Run(form);
+			System.Windows.Forms.Application.Run(form);
+		}
+
+		internal static EquipmentObservationRuntime CreateObservationRuntime(
+			EquipmentCoordinator coordinator,
+			VirtualPlcClient virtualPlc)
+		{
+			ArgumentNullException.ThrowIfNull(coordinator);
+			ArgumentNullException.ThrowIfNull(virtualPlc);
+
+			return new EquipmentObservationRuntime(
+				coordinator,
+				virtualPlc.ObservationInputControl);
 		}
 	}
 }

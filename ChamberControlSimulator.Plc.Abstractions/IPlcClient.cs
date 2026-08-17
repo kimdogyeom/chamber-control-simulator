@@ -1,14 +1,14 @@
 namespace ChamberControlSimulator.Plc.Abstractions;
 
-public interface IPlcClient : IAsyncDisposable
+public interface IPlcClient : IPlcObservationPort
 {
-	PlcConnectionState ConnectionState { get; }
+	new PlcConnectionState ConnectionState { get; }
 
-	Task ConnectAsync(CancellationToken cancellationToken);
+	new Task ConnectAsync(CancellationToken cancellationToken);
 
-	Task DisconnectAsync(CancellationToken cancellationToken);
+	new Task DisconnectAsync(CancellationToken cancellationToken);
 
-	Task<PlcInputSnapshot> ReadInputsAsync(CancellationToken cancellationToken);
+	new Task<PlcInputSnapshot> ReadInputsAsync(CancellationToken cancellationToken);
 
 	Task<PlcWriteReceipt> WriteOutputsAsync(
 		PlcOutputCommand command,

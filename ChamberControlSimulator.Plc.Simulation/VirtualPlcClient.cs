@@ -20,10 +20,13 @@ public sealed class VirtualPlcClient : IPlcClient
 	{
 		_options = options ?? throw new ArgumentNullException(nameof(options));
 		_currentTemperature = _options.InitialTemperature;
+		ObservationInputControl = new VirtualPlcObservationInputControl(this);
 		SimulationControl = new VirtualPlcSimulationControl(this);
 	}
 
 	public PlcConnectionState ConnectionState { get; private set; } = PlcConnectionState.Disconnected;
+
+	public VirtualPlcObservationInputControl ObservationInputControl { get; }
 
 	public VirtualPlcSimulationControl SimulationControl { get; }
 

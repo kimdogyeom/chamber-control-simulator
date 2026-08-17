@@ -14,15 +14,7 @@ public sealed class VirtualPlcSimulationControl
 		_client.ForceTransportDisconnect();
 	}
 
-	public void SetCurrentTemperature(double currentTemperature)
-	{
-		_client.SetCurrentTemperature(currentTemperature);
-	}
 
-	public void SetSensorHealthy(bool sensorHealthy)
-	{
-		_client.SetSensorHealthy(sensorHealthy);
-	}
 
 	public void SuppressNextAcknowledgement()
 	{
@@ -34,8 +26,4 @@ public sealed class VirtualPlcSimulationControl
 		_client.Advance(elapsed);
 	}
 
-	public void SetDoorClosed(bool doorClosed)
-	{
-		_client.SetDoorClosed(doorClosed);
-	}
 }

@@ -16,8 +16,9 @@ namespace ChamberControlSimulator.Presentation
 		event EventHandler? ApplyTemperatureRequested;
 		event EventHandler? PauseFeedbackRequested;
 		event EventHandler? ResumeFeedbackRequested;
+		event Func<Task>? ClosingRequested;
 
-		event EventHandler<TimerTickedEventArgs>? TimerTicked;
+		event Func<TimerTickedEventArgs, Task>? TimerTicked;
 		event EventHandler<RecipeSelectionRequestedEventArgs>? RecipeSelectionRequested;
 
 		double SimulatedTemperature { get; }

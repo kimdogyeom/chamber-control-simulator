@@ -8,12 +8,15 @@ namespace ChamberControlSimulator
 	{
 		private readonly System.Diagnostics.Stopwatch _stopwatch = new();
 		private int _renderedEventCount;
+		private bool _closeTeardownStarted;
+		private bool _allowCloseAfterTeardown;
 
 		public double SimulatedTemperature => (double)nudSimulatedTemperature.Value;
 
 		public Form1()
 		{
 			InitializeComponent();
+			FormClosing += Form1_FormClosing;
 			cmbRecipe.SelectionChangeCommitted += cmbRecipe_SelectionChangeCommitted;
 		}
 
@@ -25,8 +28,68 @@ namespace ChamberControlSimulator
 		public event EventHandler? ApplyTemperatureRequested;
 		public event EventHandler? PauseFeedbackRequested;
 		public event EventHandler? ResumeFeedbackRequested;
-		public event EventHandler<TimerTickedEventArgs>? TimerTicked;
+		public event Func<Task>? ClosingRequested;
+		public event Func<TimerTickedEventArgs, Task>? TimerTicked;
 		public event EventHandler<RecipeSelectionRequestedEventArgs>? RecipeSelectionRequested;
+
+		private async void Form1_FormClosing(object? sender, FormClosingEventArgs e)
+		{
+			if (_allowCloseAfterTeardown)
+			{
+				return;
+			}
+
+			e.Cancel = true;
+			if (_closeTeardownStarted)
+			{
+				return;
+			}
+
+			_closeTeardownStarted = true;
+			tmSimulationTick.Stop();
+			try
+			{
+				await InvokeClosingRequestedAsync();
+			}
+			catch (Exception exception)
+			{
+				System.Diagnostics.Trace.TraceError(exception.ToString());
+			}
+			finally
+			{
+				_allowCloseAfterTeardown = true;
+				if (!IsDisposed)
+				{
+					Close();
+				}
+			}
+		}
+
+		private async Task InvokeClosingRequestedAsync()
+		{
+			if (ClosingRequested is null)
+			{
+				return;
+			}
+
+			foreach (var handler in ClosingRequested.GetInvocationList().Cast<Func<Task>>())
+			{
+				await handler();
+			}
+		}
+
+		private async Task InvokeTimerTickedAsync(TimerTickedEventArgs timerTickedEventArgs)
+		{
+			if (TimerTicked is null)
+			{
+				return;
+			}
+
+			foreach (var handler in TimerTicked.GetInvocationList().Cast<Func<TimerTickedEventArgs, Task>>())
+			{
+				await handler(timerTickedEventArgs);
+			}
+		}
 
 		private void Form1_Load(object sender, EventArgs e)
 		{
@@ -112,12 +175,19 @@ namespace ChamberControlSimulator
 			}
 		}
 
-		private void tmSimulationTick_Tick(object sender, EventArgs e)
+		private async void tmSimulationTick_Tick(object sender, EventArgs e)
 		{
 			var elapsed = _stopwatch.Elapsed;
 			_stopwatch.Restart();
 
-			TimerTicked?.Invoke(this, new TimerTickedEventArgs(elapsed));
+			try
+			{
+				await InvokeTimerTickedAsync(new TimerTickedEventArgs(elapsed));
+			}
+			catch (Exception exception)
+			{
+				System.Diagnostics.Trace.TraceError(exception.ToString());
+			}
 		}
 
 		public void ShowSnapshot(ControllerSnapshot snapshot)

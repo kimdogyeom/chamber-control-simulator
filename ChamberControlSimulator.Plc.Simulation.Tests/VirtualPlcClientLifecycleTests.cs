@@ -69,7 +69,7 @@ public sealed class VirtualPlcClientLifecycleTests
 		var client = new VirtualPlcClient(VirtualPlcOptions.Illustrative);
 		IPlcClient port = client;
 		await port.ConnectAsync(CancellationToken.None);
-		client.SimulationControl.SetDoorClosed(false);
+		client.ObservationInputControl.SetDoorClosed(false);
 
 		var firstRead = await port.ReadInputsAsync(CancellationToken.None);
 		await port.DisconnectAsync(CancellationToken.None);

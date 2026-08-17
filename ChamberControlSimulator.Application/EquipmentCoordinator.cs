@@ -20,13 +20,13 @@ public sealed record EquipmentCycleResult(
 public sealed class EquipmentCoordinator : IAsyncDisposable
 {
 	private readonly ThermalController _controller;
-	private readonly IPlcClient _plcClient;
+	private readonly IPlcObservationPort _plcClient;
 	private long? _lastAcceptedObservationSequence;
 	private bool _disposed;
 
 	public EquipmentCoordinator(
 		ThermalController controller,
-		IPlcClient plcClient)
+		IPlcObservationPort plcClient)
 	{
 		_controller = controller ?? throw new ArgumentNullException(nameof(controller));
 		_plcClient = plcClient ?? throw new ArgumentNullException(nameof(plcClient));

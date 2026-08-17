@@ -60,17 +60,17 @@ public sealed class VirtualPlcClientTests
 		Assert.AreEqual(25d, temperatureAfterAdvance);
 	}
 
-	// 목적: simulation control로 변경한 door input이 production PLC port read에 반영되는지 검증한다.
+	// 목적: observation input control로 변경한 door input이 production PLC port read에 반영되는지 검증한다.
 	// 예상 결과: 연결 후 읽은 snapshot의 DoorClosed가 false다.
 	// 완료 조건: concrete simulation control과 IPlcClient I/O contract가 분리된 상태로 test가 통과한다.
 	[TestMethod]
-	public async Task ReadInputsAsync_AfterSimulationControlOpensDoor_ReturnsDoorOpenSnapshot()
+	public async Task ReadInputsAsync_AfterObservationInputControlOpensDoor_ReturnsDoorOpenSnapshot()
 	{
 		var client = new VirtualPlcClient(VirtualPlcOptions.Illustrative);
 		IPlcClient port = client;
 
 		await port.ConnectAsync(CancellationToken.None);
-		client.SimulationControl.SetDoorClosed(false);
+		client.ObservationInputControl.SetDoorClosed(false);
 		var snapshot = await port.ReadInputsAsync(CancellationToken.None);
 
 		Assert.IsFalse(snapshot.DoorClosed);

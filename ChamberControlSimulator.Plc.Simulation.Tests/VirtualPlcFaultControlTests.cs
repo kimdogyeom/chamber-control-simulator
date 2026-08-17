@@ -16,7 +16,7 @@ public sealed class VirtualPlcFaultControlTests
 		IPlcClient port = client;
 		await port.ConnectAsync(CancellationToken.None);
 
-		client.SimulationControl.SetCurrentTemperature(81.5d);
+		client.ObservationInputControl.SetCurrentTemperature(81.5d);
 		var snapshot = await port.ReadInputsAsync(CancellationToken.None);
 
 		Assert.AreEqual(81.5d, snapshot.CurrentTemperature);
@@ -48,7 +48,7 @@ public sealed class VirtualPlcFaultControlTests
 	}
 
 	// 목적: sensor health fault가 immutable PLC input snapshot으로 노출되는지 검증한다.
-	// 예상 결과: simulation control로 unhealthy를 설정하면 다음 read의 SensorHealthy가 false다.
+	// 예상 결과: observation input control로 unhealthy를 설정하면 다음 read의 SensorHealthy가 false다.
 	// 완료 조건: sensor fault injection이 application port의 별도 member 없이 read contract로 관측된다.
 	[TestMethod]
 	public async Task SetSensorHealthyFalse_IsObservedThroughInputSnapshot()
@@ -57,7 +57,7 @@ public sealed class VirtualPlcFaultControlTests
 		IPlcClient port = client;
 		await port.ConnectAsync(CancellationToken.None);
 
-		client.SimulationControl.SetSensorHealthy(false);
+		client.ObservationInputControl.SetSensorHealthy(false);
 		var snapshot = await port.ReadInputsAsync(CancellationToken.None);
 
 		Assert.IsFalse(snapshot.SensorHealthy);
