@@ -1,12 +1,20 @@
 <Solution>
-  <Project Path="ChamberControlSimulator.Application.Tests/ChamberControlSimulator.Application.Tests.csproj" />
-  <Project Path="ChamberControlSimulator.Application/ChamberControlSimulator.Application.csproj" />
-  <Project Path="ChamberControlSimulator.Core.Tests/ChamberControlSimulator.Core.Tests.csproj" />
-  <Project Path="ChamberControlSimulator.Core/ChamberControlSimulator.Core.csproj" />
-  <Project Path="ChamberControlSimulator.Plc.Abstractions.Tests/ChamberControlSimulator.Plc.Abstractions.Tests.csproj" />
-  <Project Path="ChamberControlSimulator.Plc.Abstractions/ChamberControlSimulator.Plc.Abstractions.csproj" />
-  <Project Path="ChamberControlSimulator.Plc.Simulation.Tests/ChamberControlSimulator.Plc.Simulation.Tests.csproj" />
-  <Project Path="ChamberControlSimulator.Plc.Simulation/ChamberControlSimulator.Plc.Simulation.csproj" />
-  <Project Path="ChamberControlSimulator.Presentation.Tests/ChamberControlSimulator.Presentation.Tests.csproj" />
-  <Project Path="ChamberControlSimulator/ChamberControlSimulator.csproj" />
+  <Folder Name="/src/">
+    <Project Path="ChamberControlSimulator.Application/ChamberControlSimulator.Application.csproj" />
+    <Project Path="ChamberControlSimulator.Core/ChamberControlSimulator.Core.csproj" />
+    <Project Path="ChamberControlSimulator/ChamberControlSimulator.csproj" />
+  </Folder>
+  <Folder Name="/src/plc/">
+    <Project Path="ChamberControlSimulator.Plc.Abstractions/ChamberControlSimulator.Plc.Abstractions.csproj" />
+    <Project Path="ChamberControlSimulator.Plc.Simulation/ChamberControlSimulator.Plc.Simulation.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="ChamberControlSimulator.Application.Tests/ChamberControlSimulator.Application.Tests.csproj" />
+    <Project Path="ChamberControlSimulator.Core.Tests/ChamberControlSimulator.Core.Tests.csproj" />
+    <Project Path="ChamberControlSimulator.Presentation.Tests/ChamberControlSimulator.Presentation.Tests.csproj" />
+  </Folder>
+  <Folder Name="/tests/plc/">
+    <Project Path="ChamberControlSimulator.Plc.Abstractions.Tests/ChamberControlSimulator.Plc.Abstractions.Tests.csproj" />
+    <Project Path="ChamberControlSimulator.Plc.Simulation.Tests/ChamberControlSimulator.Plc.Simulation.Tests.csproj" />
+  </Folder>
 </Solution>
