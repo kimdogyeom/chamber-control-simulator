@@ -15,7 +15,7 @@ P3-T2 atomic observation mapping의 source anchor는 `3a7398d` (`feat: map PLC o
 
 P3-T3 Core plant simulation separation의 source anchor는 `b949e6c` (`feat: separate Core plant temperature policy`)다. focused Tick contract 1/1, Debug build 0 warnings/0 errors, full regression 66/66, Windows-byte independent source review를 통과했다. 이 문서와 P3-T3 verification receipt도 source commit 뒤의 별도 documentation checkpoint로 남긴다.
 
-P3-T4 WinForms observation composition의 source anchor는 `2e502fa` (`feat: compose WinForms observation runtime`)다. concrete P3 input facade, non-overlapping observation cycle, close teardown, P3/P4 capability boundary를 포함하며 Debug build 0 warnings/0 errors, full regression 80/80, Windows-byte independent architecture/lifecycle review PASS와 artifact-integrity review PASS를 통과했다. post-fix Session 1 UI smoke는 deferred다.
+P3-T4 WinForms observation composition의 implementation source anchor는 `2e502fa` (`feat: compose WinForms observation runtime`)다. concrete P3 input facade, non-overlapping observation cycle, close teardown, P3/P4 capability boundary를 포함하며 Debug build 0 warnings/0 errors, full regression 80/80, Windows-byte independent architecture/lifecycle review PASS와 artifact-integrity review PASS를 통과했다. current solution baseline `9c3ad95`에서 user-driven Session 1 manual smoke는 observed input `20 → 30 → Apply` 후 `30.00 °C` rendering, Idle 유지, 오류 없음을 보고했고 UI 종료 후 application process absence를 확인했다.
 
 ## 2. 범위와 안전 한계
 
@@ -33,7 +33,7 @@ PC application의 Door/temperature/sensor interlock은 software policy demonstra
 | P3-T1 read-only coordinator | Completed | `54e8303`; full regression 61/61, independent review PASS |
 | P3-T2 atomic observation mapping | Completed | `3a7398d`; focused Core 3/3, Application 3/3, Debug build 0 warnings/0 errors, full regression 65/65; manifest `1f65b461e9a08e08f0559b9018f2af27a6e600decf53114c756221283f42a090` PASS |
 | P3-T3 plant simulation 분리 | Completed | `b949e6c`; focused Tick contract 1/1, Debug build 0 warnings/0 errors, full regression 66/66; manifest `e7e94da9061b06428e9370c3fdbf1af28a28e2d5f451070d8de0e292039f540f` PASS |
-| P3-T4 WinForms observation composition | Source committed | `2e502fa`; P3-only concrete input facade, async cycle/close teardown, 80/80, two independent reviews PASS; post-fix UI smoke deferred |
+| P3-T4 WinForms observation composition | Completed | implementation `2e502fa`; current solution baseline `9c3ad95`; P3-only concrete input facade, async cycle/close teardown, 80/80, two independent reviews PASS; user-driven Session 1 input-to-render/close smoke completed |
 | P4 command/ACK lifecycle | Planned | output write, matching ACK, timeout, duplicate prevention |
 
 P3-T2의 65/65는 `3a7398d` source commit에, P3-T3의 66/66은 `b949e6c` source commit에 각각 bound된 verification result다. P3-T4/P4의 completion evidence나 전체 release claim으로 사용하지 않는다.
@@ -172,7 +172,7 @@ P3-T3 (`b949e6c`)에서 legacy `ThermalController.Tick`의 synthetic temperature
 - P3-T3 (`b949e6c`)는 observed temperature와 elapsed를 받는 `ApplyObservation(...)`에서만 normal phase policy가 진행되게 한다.
 - `Tick`은 SensorTimeout/Recovery를 위한 legacy feedback timing을 보존하지만 physical temperature, Holding elapsed, Heating/Holding/Cooling phase를 진행하지 않는다.
 
-P3-T3은 Core source boundary다. P3-T4 `2e502fa`는 WinForms observation composition을 추가했지만, P0 screenshots는 historical baseline으로 남는다. post-fix Session 1 UI smoke가 deferred된 상태에서는 automated source/test/build evidence를 current UI screenshot evidence로 확장하지 않는다.
+P3-T3은 Core source boundary다. P3-T4 `2e502fa`는 WinForms observation composition을 추가했고, current solution baseline `9c3ad95`에서 user-driven Session 1 manual smoke가 observed input `20 → 30 → Apply`, `30.00 °C` rendering, Idle 유지, UI 종료 후 process absence를 확인했다. 이는 narrow input-to-render/close composition evidence일 뿐이며 P0 screenshots는 historical baseline으로 남고, automated source/test/build evidence를 current UI screenshot evidence나 P4 evidence로 확장하지 않는다.
 
 ## 9. Alarm / Recovery policy
 

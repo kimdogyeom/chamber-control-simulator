@@ -1,6 +1,6 @@
 # 데모 시나리오
 
-> **Evidence status — P0 historical baseline:** 이 문서의 UI 흐름, Normal Cycle 절차, screenshots는 direct `Form1 → EquipmentPresenter → ThermalController` wiring에서 만든 P0 baseline evidence다. P3-T4 source `2e502fa`는 `EquipmentCoordinator`와 Virtual PLC observation runtime을 WinForms composition root에 연결했지만, 아래 images와 procedures는 그 source SHA에 bound된 current UI evidence가 아니다. 특히 P3-T3 이후 legacy `Tick`은 synthetic temperature나 normal phase를 진행하지 않으므로 아래 Normal Cycle은 current UI reproduction procedure가 아니다. P3-T4 automated composition evidence는 [`docs/verification/p3-t4-winforms-observation-composition.md`](../verification/p3-t4-winforms-observation-composition.md)에 기록하며, post-fix Session 1 UI smoke는 deferred다. 따라서 이 이미지와 절차를 PLC command write, semantic ACK, current screenshot evidence로 해석하면 안 된다.
+> **Evidence status — P0 historical baseline:** 이 문서의 UI 흐름, Normal Cycle 절차, screenshots는 direct `Form1 → EquipmentPresenter → ThermalController` wiring에서 만든 P0 baseline evidence다. P3-T4 source `2e502fa`는 `EquipmentCoordinator`와 Virtual PLC observation runtime을 WinForms composition root에 연결했지만, 아래 images와 procedures는 그 source SHA에 bound된 current UI evidence가 아니다. 특히 P3-T3 이후 legacy `Tick`은 synthetic temperature나 normal phase를 진행하지 않으므로 아래 Normal Cycle은 current UI reproduction procedure가 아니다. current solution baseline `9c3ad95`에서 user-driven Session 1 manual smoke는 observed input `20 → 30 → Apply` 후 `30.00 °C` rendering과 Idle 유지를 확인했으며, UI 종료 후 process absence도 확인했다. 이 좁은 input-to-render/close evidence는 [`docs/verification/p3-t4-winforms-observation-composition.md`](../verification/p3-t4-winforms-observation-composition.md)에 기록하며, 아래 images와 procedures를 current normal-cycle, PLC command write, semantic ACK, 또는 current screenshot evidence로 바꾸지 않는다.
 
 이 문서는 P0 baseline에서 재현한 UI 흐름과 당시 automated test identifier를 보존한다. 현재 source policy의 증거는 source-SHA-bound verification receipt를 사용하며, 이 문서의 historical procedure가 이를 대체하지 않는다. 이 프로젝트는 가상 시뮬레이터이며 실제 장비·PLC·온도 센서·히터를 제어하지 않는다.
 
@@ -47,7 +47,7 @@ Current source policy proof (UI runtime evidence 아님):
 ApplyObservation_ValidObservedSequence_ProgressesThroughNormalPhasesToComplete
 ```
 
-이 current Core test는 observed target, hold elapsed, ambient observation을 `ApplyObservation(...)`으로 제공해 phase sequence를 검증한다. P3-T4 source `2e502fa`는 Coordinator/Virtual PLC observation을 WinForms composition root에 연결했지만, 이 Core test와 P0 screenshot은 post-fix current UI flow evidence가 아니다. P3-T4 automated runtime proof와 deferred UI-smoke boundary는 verification receipt를 따른다.
+이 current Core test는 observed target, hold elapsed, ambient observation을 `ApplyObservation(...)`으로 제공해 phase sequence를 검증한다. P3-T4 source `2e502fa`는 Coordinator/Virtual PLC observation을 WinForms composition root에 연결했다. user-driven P3-T4 Session 1 smoke는 observed input-to-render/close만 보조로 확인하며, 이 Core test와 P0 screenshot을 post-fix current normal-cycle UI flow evidence로 바꾸지 않는다. P3-T4 automated runtime proof와 manual-smoke boundary는 verification receipt를 따른다.
 
 ### P0 화면 증거
 
