@@ -579,6 +579,55 @@ public sealed class EquipmentCommandRuntimeTests
 		Assert.AreEqual(ControllerState.Idle, controller.Snapshot.State);
 	}
 
+	// 목적: receipt timeout 뒤 noncooperative physical write가 fault로 settle할 때 failure evidence와 shared lease 처리를 검증한다.
+	// 예상 결과: late exception은 Trace diagnostic에 남고 gate는 실제 fault settlement 뒤에만 풀리며 ReceiptTimedOut은 변하지 않는다.
+	// 완료 조건: subsequent P3 read가 진행되어도 retry/replay/new ID/write/revival 없이 timeout hold가 유지된다.
+	[TestMethod]
+	[DoNotParallelize]
+	public async Task RequestStartAsync_LateFaultAfterReceiptTimeout_RecordsDiagnosticAndReleasesLeaseWithoutRevival()
+	{
+		var controller = CreateController();
+		var ports = new ControlledPlcPorts();
+		var timeProvider = new ManualTimeProvider();
+		ports.EnqueueSnapshot(Snapshot(sequence: 1));
+		var writeCompletion = new TaskCompletionSource<PlcWriteReceipt>(TaskCreationOptions.RunContinuationsAsynchronously);
+		ports.WriteHandler = (_, _) => writeCompletion.Task;
+		var listener = new RecordingTraceListener();
+		System.Diagnostics.Trace.Listeners.Add(listener);
+
+		try
+		{
+			await using var runtime = new EquipmentCommandRuntime(controller, ports, ports, timeProvider);
+			await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+			var requestTask = runtime.RequestStartAsync(CancellationToken.None);
+			await ports.WriteStarted.Task;
+			timeProvider.Advance(TimeSpan.FromSeconds(3));
+			var timeoutResult = await requestTask;
+			ports.EnqueueSnapshot(Snapshot(sequence: 2));
+			var blockedCycle = runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+
+			Assert.AreEqual(EquipmentCommandLifecycleDisposition.ReceiptTimedOut, timeoutResult.Disposition);
+			Assert.IsFalse(blockedCycle.IsCompleted);
+			writeCompletion.SetException(new InvalidOperationException("late physical write failure"));
+			var cycleResult = await blockedCycle.WaitAsync(TimeSpan.FromSeconds(1));
+			System.Diagnostics.Trace.Flush();
+			var duplicate = await runtime.RequestStartAsync(CancellationToken.None);
+
+			StringAssert.Contains(listener.Messages, "late physical write failure");
+			Assert.AreEqual(EquipmentCommandLifecycleDisposition.ReceiptTimedOut, cycleResult.CommandDisposition);
+			Assert.AreEqual(EquipmentCommandLifecycleDisposition.ReceiptTimedOut, runtime.CurrentState.Disposition);
+			Assert.AreEqual(EquipmentCommandLifecycleDisposition.AdmissionRejected, duplicate.Disposition);
+			Assert.AreEqual(1, ports.WriteCount);
+			Assert.AreEqual(2, ports.ReadCount);
+			Assert.AreEqual(ControllerState.Idle, controller.Snapshot.State);
+		}
+		finally
+		{
+			System.Diagnostics.Trace.Listeners.Remove(listener);
+			listener.Dispose();
+		}
+	}
+
 	private static ThermalController CreateController() => new(new Recipe(30, 35), SimulationSettings.Illustrative);
 
 	private static PlcInputSnapshot Snapshot(
@@ -591,6 +640,17 @@ public sealed class EquipmentCommandRuntimeTests
 			PlcMachineState.Idle,
 			acknowledgedCommandId,
 			sequence);
+
+	private sealed class RecordingTraceListener : System.Diagnostics.TraceListener
+	{
+		private readonly System.Text.StringBuilder _messages = new();
+
+		public string Messages => _messages.ToString();
+
+		public override void Write(string? message) => _messages.Append(message);
+
+		public override void WriteLine(string? message) => _messages.AppendLine(message);
+	}
 
 	private sealed class ControlledPlcPorts : IPlcObservationPort, IPlcOutputPort
 	{

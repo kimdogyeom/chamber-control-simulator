@@ -306,8 +306,9 @@ public sealed class EquipmentCommandRuntime : IAsyncDisposable
 		{
 			await writeTask.ConfigureAwait(false);
 		}
-		catch
+		catch (Exception exception)
 		{
+			System.Diagnostics.Trace.TraceError(exception.ToString());
 		}
 		finally
 		{
