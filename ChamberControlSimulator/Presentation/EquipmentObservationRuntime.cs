@@ -3,16 +3,16 @@ using ChamberControlSimulator.Plc.Abstractions;
 
 namespace ChamberControlSimulator.Presentation
 {
-	internal sealed class EquipmentObservationRuntime : IEquipmentObservationRuntime
+	internal sealed class EquipmentObservationRuntime : IEquipmentObservationRuntime, IEquipmentCommandRuntime
 	{
-		private readonly EquipmentCoordinator _coordinator;
+		private readonly EquipmentCommandRuntime _commandRuntime;
 		private readonly IPlcObservationInputControl _simulationControl;
 
 		public EquipmentObservationRuntime(
-			EquipmentCoordinator coordinator,
+			EquipmentCommandRuntime commandRuntime,
 			IPlcObservationInputControl simulationControl)
 		{
-			_coordinator = coordinator ?? throw new ArgumentNullException(nameof(coordinator));
+			_commandRuntime = commandRuntime ?? throw new ArgumentNullException(nameof(commandRuntime));
 			_simulationControl = simulationControl ?? throw new ArgumentNullException(nameof(simulationControl));
 		}
 
@@ -33,9 +33,14 @@ namespace ChamberControlSimulator.Presentation
 
 		public async Task CycleAsync(TimeSpan elapsed, CancellationToken cancellationToken)
 		{
-			await _coordinator.CycleAsync(elapsed, cancellationToken);
+			await _commandRuntime.CycleAsync(elapsed, cancellationToken);
 		}
 
-		public ValueTask DisposeAsync() => _coordinator.DisposeAsync();
+		public Task<EquipmentCommandRequestResult> RequestStartAsync(CancellationToken cancellationToken) =>
+			_commandRuntime.RequestStartAsync(cancellationToken);
+
+		public void StopAdmission() => _commandRuntime.StopAdmission();
+
+		public ValueTask DisposeAsync() => _commandRuntime.DisposeAsync();
 	}
 }

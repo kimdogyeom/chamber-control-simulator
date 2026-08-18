@@ -19,7 +19,7 @@ public sealed class EquipmentPresenterTests
 			[standard, highTemperature],
 			SimulationSettings.Illustrative);
 
-		_ = new EquipmentPresenter(view, controller, new PassiveObservationRuntime());
+		_ = CreatePresenter(view, controller, new PassiveObservationRuntime());
 
 		CollectionAssert.AreEqual(
 			new[] { standard, highTemperature },
@@ -30,33 +30,20 @@ public sealed class EquipmentPresenterTests
 		Assert.IsEmpty(view.LastEventLog);
 	}
 
-	[TestMethod]
-	public void StartRequested_RendersHeatingSnapshotAndNewEventHistory()
-	{
-		var view = new FakeEquipmentView();
-		var controller = CreateController();
-		_ = new EquipmentPresenter(view, controller, new PassiveObservationRuntime());
-
-		view.RaiseStartRequested();
-
-		Assert.IsNotNull(view.LastSnapshot);
-		Assert.AreEqual(ControllerState.Heating, view.LastSnapshot!.State);
-		CollectionAssert.AreEqual(
-			new[] { "Start", "Phase: Precheck", "Phase: Heating" },
-			view.LastEventLog.Select(entry => entry.Event).ToArray());
-	}
-
 	// 목적: WinForms timer와 Form closing이 async observation cycle 및 teardown completion을 await할 수 있는 View contract인지 검증한다.
-	// 예상 결과: TimerTicked는 Func<TimerTickedEventArgs, Task>, ClosingRequested는 Func<Task> event handler를 노출한다.
+	// 예상 결과: StartRequested와 ClosingRequested는 Func<Task>, TimerTicked는 Func<TimerTickedEventArgs, Task> handler를 노출한다.
 	// 완료 조건: Form이 busy elapsed와 close teardown을 fire-and-forget 하지 않는 awaitable seam을 가진다.
 	[TestMethod]
 	public void ViewLifecycleEvents_ExposeAwaitableTimerAndClosingHandlers()
 	{
+		var startRequested = typeof(IEquipmentView).GetEvent(nameof(IEquipmentView.StartRequested));
 		var timerTicked = typeof(IEquipmentView).GetEvent(nameof(IEquipmentView.TimerTicked));
 		var closingRequested = typeof(IEquipmentView).GetEvent(nameof(IEquipmentView.ClosingRequested));
 
+		Assert.IsNotNull(startRequested);
 		Assert.IsNotNull(timerTicked);
 		Assert.IsNotNull(closingRequested);
+		Assert.AreEqual(typeof(Func<Task>), startRequested.EventHandlerType);
 		Assert.AreEqual(typeof(Func<TimerTickedEventArgs, Task>), timerTicked.EventHandlerType);
 		Assert.AreEqual(typeof(Func<Task>), closingRequested.EventHandlerType);
 	}
@@ -72,8 +59,8 @@ public sealed class EquipmentPresenterTests
 			new Recipe("Slow Heat", 100, 110),
 			SimulationSettings.Illustrative);
 		var runtime = new RecordingObservationRuntime(controller, observedTemperature: 20d);
-		_ = new EquipmentPresenter(view, controller, runtime);
-		view.RaiseStartRequested();
+		_ = CreatePresenter(view, controller, runtime);
+		controller.Start();
 
 		view.RaiseTimerTicked(TimeSpan.FromSeconds(2));
 
@@ -95,7 +82,7 @@ public sealed class EquipmentPresenterTests
 			new Recipe("Observed", 100d, 110d),
 			SimulationSettings.Illustrative);
 		var runtime = new RecordingObservationRuntime(controller, observedTemperature: 30d);
-		_ = new EquipmentPresenter(view, controller, runtime);
+		_ = CreatePresenter(view, controller, runtime);
 
 		view.RaiseTimerTicked(TimeSpan.FromSeconds(1));
 
@@ -114,7 +101,7 @@ public sealed class EquipmentPresenterTests
 		var view = new FakeEquipmentView();
 		var controller = CreateController();
 		var runtime = new RecordingObservationRuntime(controller, observedTemperature: 20d);
-		_ = new EquipmentPresenter(view, controller, runtime);
+		_ = CreatePresenter(view, controller, runtime);
 
 		view.RaiseDoorToggleRequested();
 
@@ -149,9 +136,9 @@ public sealed class EquipmentPresenterTests
 	{
 		var controller = CreateController();
 		var virtualPlc = new VirtualPlcClient(VirtualPlcOptions.Illustrative);
-		var coordinator = new EquipmentCoordinator(controller, virtualPlc);
+		var commandRuntime = new EquipmentCommandRuntime(controller, virtualPlc, virtualPlc, TimeProvider.System);
 		await using var runtime = new EquipmentObservationRuntime(
-			coordinator,
+			commandRuntime,
 			virtualPlc.ObservationInputControl);
 
 		runtime.SetCurrentTemperature(30d);
@@ -168,9 +155,9 @@ public sealed class EquipmentPresenterTests
 	{
 		var controller = CreateController();
 		var virtualPlc = new VirtualPlcClient(VirtualPlcOptions.Illustrative);
-		var coordinator = new EquipmentCoordinator(controller, virtualPlc);
+		var commandRuntime = new EquipmentCommandRuntime(controller, virtualPlc, virtualPlc, TimeProvider.System);
 		await using var runtime = new EquipmentObservationRuntime(
-			coordinator,
+			commandRuntime,
 			virtualPlc.ObservationInputControl);
 
 		await virtualPlc.ConnectAsync(CancellationToken.None);
@@ -193,7 +180,7 @@ public sealed class EquipmentPresenterTests
 	{
 		var view = new FakeEquipmentView();
 		var runtime = new BlockingObservationRuntime();
-		_ = new EquipmentPresenter(view, CreateController(), runtime);
+		_ = CreatePresenter(view, CreateController(), runtime);
 
 		view.RaiseTimerTicked(TimeSpan.FromSeconds(1));
 		await runtime.CycleStarted;
@@ -218,7 +205,7 @@ public sealed class EquipmentPresenterTests
 	{
 		var view = new FakeEquipmentView();
 		var runtime = new CancellableObservationRuntime();
-		var presenter = new EquipmentPresenter(view, CreateController(), runtime);
+		var presenter = CreatePresenter(view, CreateController(), runtime);
 		var initialSnapshotRenderCount = view.SnapshotRenderCount;
 
 		try
@@ -248,7 +235,7 @@ public sealed class EquipmentPresenterTests
 	{
 		var view = new FakeEquipmentView();
 		var runtime = new ElapsedRecordingBlockingObservationRuntime();
-		var presenter = new EquipmentPresenter(view, CreateController(), runtime);
+		var presenter = CreatePresenter(view, CreateController(), runtime);
 
 		try
 		{
@@ -281,7 +268,7 @@ public sealed class EquipmentPresenterTests
 	{
 		var view = new FakeEquipmentView();
 		var runtime = new CancellableObservationRuntime();
-		var presenter = new EquipmentPresenter(view, CreateController(), runtime);
+		var presenter = CreatePresenter(view, CreateController(), runtime);
 
 		try
 		{
@@ -309,7 +296,7 @@ public sealed class EquipmentPresenterTests
 	{
 		var view = new FakeEquipmentView();
 		var runtime = new NonCooperativeObservationRuntime();
-		var presenter = new EquipmentPresenter(view, CreateController(), runtime);
+		var presenter = CreatePresenter(view, CreateController(), runtime);
 		Task? firstDispose = null;
 		Task? secondDispose = null;
 		Task? timerTick = null;
@@ -357,7 +344,7 @@ public sealed class EquipmentPresenterTests
 	{
 		var view = new FakeEquipmentView();
 		var runtime = new FaultingObservationRuntime();
-		var presenter = new EquipmentPresenter(view, CreateController(), runtime);
+		var presenter = CreatePresenter(view, CreateController(), runtime);
 		Task? timerTick = null;
 		Task? teardown = null;
 
@@ -389,15 +376,15 @@ public sealed class EquipmentPresenterTests
 		}
 	}
 
-	// 목적: 실제 Program composition이 broad simulation facade 대신 P3-only concrete input facade를 runtime에 주입하는지 검증한다.
-	// 예상 결과: injected object는 ObservationInputControl과 동일하지만 SimulationControl과 다르고 Advance·ACK suppression·transport fault API를 갖지 않는다.
-	// 완료 조건: interface 선언뿐 아니라 P3 실제 객체 graph에서도 P4 virtual-time/ACK/fault capability가 도달 불가능하다.
+	// 목적: 실제 Program composition이 one shared P3/P4 command runtime과 P3-only simulation input facade를 함께 주입하는지 검증한다.
+	// 예상 결과: wrapper는 exact EquipmentCommandRuntime과 ObservationInputControl을 보유하고 broad SimulationControl/fault API를 노출하지 않는다.
+	// 완료 조건: production Start/write/read가 shared serialization boundary를 사용하면서 UI input capability는 좁게 유지된다.
 	[TestMethod]
-	public async Task ProgramComposition_InjectsDistinctP3ObservationInputFacadeWithoutP4Controls()
+	public async Task ProgramComposition_InjectsSharedCommandRuntimeAndDistinctObservationInputFacade()
 	{
 		var controller = CreateController();
 		var virtualPlc = new VirtualPlcClient(VirtualPlcOptions.Illustrative);
-		var coordinator = new EquipmentCoordinator(controller, virtualPlc);
+		var commandRuntime = new EquipmentCommandRuntime(controller, virtualPlc, virtualPlc, TimeProvider.System);
 		EquipmentObservationRuntime? runtime = null;
 
 		try
@@ -406,16 +393,20 @@ public sealed class EquipmentPresenterTests
 				"CreateObservationRuntime",
 				System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic,
 				binder: null,
-				types: [typeof(EquipmentCoordinator), typeof(VirtualPlcClient)],
+				types: [typeof(EquipmentCommandRuntime), typeof(VirtualPlcClient)],
 				modifiers: null);
 
 			Assert.IsNotNull(factory);
-			runtime = factory.Invoke(null, [coordinator, virtualPlc]) as EquipmentObservationRuntime;
+			runtime = factory.Invoke(null, [commandRuntime, virtualPlc]) as EquipmentObservationRuntime;
 			Assert.IsNotNull(runtime);
 
+			var commandRuntimeField = typeof(EquipmentObservationRuntime).GetField(
+				"_commandRuntime",
+				System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
 			var simulationControlField = typeof(EquipmentObservationRuntime).GetField(
 				"_simulationControl",
 				System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+			Assert.IsNotNull(commandRuntimeField);
 			Assert.IsNotNull(simulationControlField);
 
 			var observationInputProperty = typeof(VirtualPlcClient).GetProperty("ObservationInputControl");
@@ -423,8 +414,8 @@ public sealed class EquipmentPresenterTests
 			var injectedControl = simulationControlField.GetValue(runtime);
 			var observationInputControl = observationInputProperty.GetValue(virtualPlc);
 
+			Assert.AreSame(commandRuntime, commandRuntimeField.GetValue(runtime));
 			Assert.IsNotNull(injectedControl);
-			Assert.IsNotNull(observationInputControl);
 			Assert.AreSame(observationInputControl, injectedControl);
 			Assert.AreNotSame(virtualPlc.SimulationControl, injectedControl);
 			Assert.IsNull(injectedControl.GetType().GetMethod("Advance"));
@@ -439,30 +430,38 @@ public sealed class EquipmentPresenterTests
 			}
 			else
 			{
-				await virtualPlc.DisposeAsync();
+				await commandRuntime.DisposeAsync();
 			}
 		}
 	}
 
-	// 목적: P3 WinForms runtime과 coordinator가 P4 output/ACK capability를 갖지 않는 read-only port만 의존하는지 검증한다.
-	// 예상 결과: coordinator constructor는 IPlcObservationPort, runtime constructor는 IPlcObservationInputControl을 받고 input control에는 Advance·ACK fault API가 없다.
-	// 완료 조건: P3 observation path가 compile-time capability로 P4 write/virtual-time state를 간접 전진시키지 않는다.
+	// 목적: P3 coordinator는 observation-only port를 유지하고 WinForms wrapper는 exact command runtime plus narrow input-control만 의존하는지 검증한다.
+	// 예상 결과: coordinator port에는 write가 없고 wrapper constructor는 EquipmentCommandRuntime/IPlcObservationInputControl이며 input control에는 P4 fault API가 없다.
+	// 완료 조건: shared P4 runtime composition이 P3 coordinator 또는 simulation-input facade를 broad client capability로 확장하지 않는다.
 	[TestMethod]
-	public void P3Runtime_UsesObservationOnlyPortsWithoutP4ControlCapability()
+	public void RuntimeComposition_PreservesObservationOnlyP3AndNarrowSimulationInput()
 	{
 		var coordinatorConstructor = typeof(EquipmentCoordinator).GetConstructors()
 			.Single(constructor => constructor.GetParameters().Length == 2);
 		var runtimeConstructor = typeof(EquipmentObservationRuntime).GetConstructors()
 			.Single(constructor => constructor.GetParameters().Length == 2);
 		var coordinatorPort = coordinatorConstructor.GetParameters()[1].ParameterType;
-		var runtimeInputControl = runtimeConstructor.GetParameters()[1].ParameterType;
+		var runtimeParameters = runtimeConstructor.GetParameters().Select(parameter => parameter.ParameterType).ToArray();
 
 		Assert.AreEqual("IPlcObservationPort", coordinatorPort.Name);
-		Assert.AreEqual("IPlcObservationInputControl", runtimeInputControl.Name);
+		CollectionAssert.AreEqual(
+			new[] { typeof(EquipmentCommandRuntime), typeof(IPlcObservationInputControl) },
+			runtimeParameters);
 		Assert.IsNull(coordinatorPort.GetMethod("WriteOutputsAsync"));
-		Assert.IsNull(runtimeInputControl.GetMethod("Advance"));
-		Assert.IsNull(runtimeInputControl.GetMethod("ForceTransportDisconnect"));
-		Assert.IsNull(runtimeInputControl.GetMethod("SuppressNextAcknowledgement"));
+		Assert.IsNull(runtimeParameters[1].GetMethod("Advance"));
+		Assert.IsNull(runtimeParameters[1].GetMethod("ForceTransportDisconnect"));
+		Assert.IsNull(runtimeParameters[1].GetMethod("SuppressNextAcknowledgement"));
+		Assert.IsNull(typeof(IEquipmentObservationRuntime).GetMethod("RequestStartAsync"));
+		Assert.IsNull(typeof(IEquipmentObservationRuntime).GetMethod("StopAdmission"));
+		Assert.IsNotNull(typeof(IEquipmentCommandRuntime).GetMethod("RequestStartAsync"));
+		Assert.IsNotNull(typeof(IEquipmentCommandRuntime).GetMethod("StopAdmission"));
+		Assert.IsNull(typeof(IEquipmentCommandRuntime).GetMethod("CycleAsync"));
+		Assert.IsNull(typeof(IEquipmentCommandRuntime).GetMethod("SetCurrentTemperature"));
 	}
 
 	// 목적: runtime CycleAsync가 raw Task를 반환하기 전에 reentrant DisposeAsync가 발생해도 runtime disposal이 cycle completion보다 앞서지 않는지 검증한다.
@@ -473,7 +472,7 @@ public sealed class EquipmentPresenterTests
 	{
 		var view = new FakeEquipmentView();
 		var runtime = new ReentrantDisposingObservationRuntime();
-		var presenter = new EquipmentPresenter(view, CreateController(), runtime);
+		var presenter = CreatePresenter(view, CreateController(), runtime);
 		runtime.DisposeDuringCycle = presenter.DisposeAsync;
 		Task? timerTick = null;
 
@@ -510,7 +509,7 @@ public sealed class EquipmentPresenterTests
 		var controller = new ThermalController(
 			[standard, highTemperature],
 			SimulationSettings.Illustrative);
-		_ = new EquipmentPresenter(view, controller, new PassiveObservationRuntime());
+		_ = CreatePresenter(view, controller, new PassiveObservationRuntime());
 
 		view.RaiseRecipeSelectionRequested(highTemperature.Name);
 
@@ -528,8 +527,8 @@ public sealed class EquipmentPresenterTests
 		var controller = new ThermalController(
 			[standard, highTemperature],
 			SimulationSettings.Illustrative);
-		_ = new EquipmentPresenter(view, controller, new PassiveObservationRuntime());
-		view.RaiseStartRequested();
+		_ = CreatePresenter(view, controller, new PassiveObservationRuntime());
+		controller.Start();
 
 		view.RaiseRecipeSelectionRequested(highTemperature.Name);
 
@@ -538,6 +537,100 @@ public sealed class EquipmentPresenterTests
 		Assert.AreEqual(standard.TargetTemperature, view.LastSnapshot.TargetTemperature);
 		Assert.IsFalse(view.LastSnapshot.CanSelectRecipe);
 	}
+
+	// 목적: awaitable Start request가 Application command runtime을 통해서만 흐르고 direct Core Start를 호출하지 않는지 검증한다.
+	// 예상 결과: handler Task는 controlled request completion까지 대기하고 Core는 Idle/event-empty이며 runtime request count는 1이다.
+	// 완료 조건: UI Start가 P4 receipt/ACK authority를 우회하지 않는 owned Task seam이다.
+	[TestMethod]
+	public async Task StartRequestedAsync_AwaitsCommandRuntimeWithoutDirectCoreStart()
+	{
+		var view = new FakeEquipmentView();
+		var controller = CreateController();
+		var runtime = new BlockingCommandObservationRuntime();
+		await using var presenter = CreatePresenter(view, controller, runtime, runtime);
+
+		var requestTask = view.RaiseStartRequestedAsync();
+		await runtime.RequestStarted;
+
+		Assert.IsFalse(requestTask.IsCompleted);
+		Assert.AreEqual(ControllerState.Idle, controller.Snapshot.State);
+		Assert.IsEmpty(controller.EventHistory);
+		runtime.ReleaseRequest();
+		await requestTask;
+		Assert.AreEqual(1, runtime.RequestCount);
+		Assert.AreEqual(ControllerState.Idle, controller.Snapshot.State);
+		Assert.IsEmpty(controller.EventHistory);
+	}
+
+	// 목적: Form closing이 active command admission을 먼저 닫고 owned cancellation을 관찰한 뒤 runtime을 한 번 dispose하는지 검증한다.
+	// 예상 결과: cancellation 시 StopAdmission이 이미 호출되어 있고 close completion 뒤 dispose count 1, late snapshot render 0이다.
+	// 완료 조건: cancellation을 safe non-dispatch로 오인하지 않으면서 admission/cancel/join/dispose 순서를 보장한다.
+	[TestMethod]
+	public async Task ClosingRequested_StopsAdmissionCancelsAndJoinsActiveCommandWithoutLateRender()
+	{
+		var view = new FakeEquipmentView();
+		var controller = CreateController();
+		var runtime = new BlockingCommandObservationRuntime(cancellationCooperative: true);
+		var presenter = CreatePresenter(view, controller, runtime, runtime);
+		var initialRenderCount = view.SnapshotRenderCount;
+		try
+		{
+			var requestTask = view.RaiseStartRequestedAsync();
+			await runtime.RequestStarted;
+			await view.RaiseClosingRequestedAsync();
+			await requestTask;
+
+			Assert.IsTrue(runtime.CancellationObservedAfterStopAdmission);
+			Assert.AreEqual(1, runtime.DisposeCount);
+			Assert.AreEqual(initialRenderCount, view.SnapshotRenderCount);
+		}
+		finally
+		{
+			await presenter.DisposeAsync();
+		}
+	}
+
+	// 목적: cancellation을 무시하는 active command가 실제 settle하기 전 Form closing이 teardown 완료를 거짓 보고하지 않는지 검증한다.
+	// 예상 결과: release 전 close Task와 runtime disposal은 미완료이고 release 뒤 dispose 한 번과 no late render가 성립한다.
+	// 완료 조건: noncooperative transport ambiguity가 close에서 조기 lease/dispose로 축소되지 않는다.
+	[TestMethod]
+	public async Task ClosingRequested_NonCooperativeCommandWaitsForActualSettlementBeforeDispose()
+	{
+		var view = new FakeEquipmentView();
+		var controller = CreateController();
+		var runtime = new BlockingCommandObservationRuntime(cancellationCooperative: false);
+		var presenter = CreatePresenter(view, controller, runtime, runtime);
+		var initialRenderCount = view.SnapshotRenderCount;
+		try
+		{
+			var requestTask = view.RaiseStartRequestedAsync();
+			await runtime.RequestStarted;
+			var closeTask = view.RaiseClosingRequestedAsync();
+			await Task.Yield();
+
+			Assert.IsFalse(closeTask.IsCompleted);
+			Assert.AreEqual(0, runtime.DisposeCount);
+			runtime.ReleaseRequest();
+			await Task.WhenAll(requestTask, closeTask);
+			Assert.AreEqual(1, runtime.DisposeCount);
+			Assert.AreEqual(initialRenderCount, view.SnapshotRenderCount);
+		}
+		finally
+		{
+			await presenter.DisposeAsync();
+		}
+	}
+
+	private static EquipmentPresenter CreatePresenter(
+		IEquipmentView view,
+		ThermalController controller,
+		IEquipmentObservationRuntime observationRuntime,
+		IEquipmentCommandRuntime? commandRuntime = null) =>
+		new(
+			view,
+			controller,
+			observationRuntime,
+			commandRuntime ?? new PassiveCommandRuntime());
 
 	private static ThermalController CreateController() => new(
 		new Recipe("Standard", 250, 300),
@@ -763,6 +856,75 @@ public sealed class EquipmentPresenterTests
 		public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 	}
 
+	private sealed class PassiveCommandRuntime : IEquipmentCommandRuntime
+	{
+		public Task<EquipmentCommandRequestResult> RequestStartAsync(CancellationToken cancellationToken)
+		{
+			cancellationToken.ThrowIfCancellationRequested();
+			return Task.FromResult(new EquipmentCommandRequestResult(
+				EquipmentCommandLifecycleDisposition.AdmissionRejected,
+				null));
+		}
+
+		public void StopAdmission()
+		{
+		}
+	}
+
+	private sealed class BlockingCommandObservationRuntime : IEquipmentObservationRuntime, IEquipmentCommandRuntime
+	{
+		private readonly bool _cancellationCooperative;
+		private readonly TaskCompletionSource<bool> _requestStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+		private readonly TaskCompletionSource<bool> _releaseRequest = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+		public BlockingCommandObservationRuntime(bool cancellationCooperative = false)
+		{
+			_cancellationCooperative = cancellationCooperative;
+		}
+
+		public Task RequestStarted => _requestStarted.Task;
+		public int RequestCount { get; private set; }
+		public int DisposeCount { get; private set; }
+		public bool StopAdmissionCalled { get; private set; }
+		public bool CancellationObservedAfterStopAdmission { get; private set; }
+
+		public void StopAdmission() => StopAdmissionCalled = true;
+		public void ReleaseRequest() => _releaseRequest.TrySetResult(true);
+		public void SetCurrentTemperature(double currentTemperature) { }
+		public void SetSensorHealthy(bool sensorHealthy) { }
+		public void SetDoorClosed(bool doorClosed) { }
+		public Task CycleAsync(TimeSpan elapsed, CancellationToken cancellationToken) => Task.CompletedTask;
+
+		public async Task<EquipmentCommandRequestResult> RequestStartAsync(CancellationToken cancellationToken)
+		{
+			RequestCount++;
+			_requestStarted.TrySetResult(true);
+			if (_cancellationCooperative)
+			{
+				try
+				{
+					await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+				}
+				catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+				{
+					CancellationObservedAfterStopAdmission = StopAdmissionCalled;
+					throw;
+				}
+			}
+
+			await _releaseRequest.Task;
+			return new EquipmentCommandRequestResult(
+				EquipmentCommandLifecycleDisposition.AwaitingAcknowledgement,
+				1);
+		}
+
+		public ValueTask DisposeAsync()
+		{
+			DisposeCount++;
+			return ValueTask.CompletedTask;
+		}
+	}
+
 	private sealed class PassiveObservationRuntime : IEquipmentObservationRuntime
 	{
 		public void SetCurrentTemperature(double currentTemperature)
@@ -825,7 +987,7 @@ public sealed class EquipmentPresenterTests
 
 	private sealed class FakeEquipmentView : IEquipmentView
 	{
-		public event EventHandler? StartRequested;
+		public event Func<Task>? StartRequested;
 		public event EventHandler? StopRequested;
 		public event EventHandler? AcknowledgeRequested;
 		public event EventHandler? ResetRequested;
@@ -843,7 +1005,18 @@ public sealed class EquipmentPresenterTests
 		public int SnapshotRenderCount { get; private set; }
 		public IReadOnlyList<EventLogEntry> LastEventLog { get; private set; } = [];
 
-		public void RaiseStartRequested() => StartRequested?.Invoke(this, EventArgs.Empty);
+		public async Task RaiseStartRequestedAsync()
+		{
+			if (StartRequested is null)
+			{
+				return;
+			}
+
+			foreach (var handler in StartRequested.GetInvocationList().Cast<Func<Task>>())
+			{
+				await handler();
+			}
+		}
 		public void RaiseStopRequested() => StopRequested?.Invoke(this, EventArgs.Empty);
 		public void RaiseAcknowledgeRequested() => AcknowledgeRequested?.Invoke(this, EventArgs.Empty);
 		public void RaiseResetRequested() => ResetRequested?.Invoke(this, EventArgs.Empty);

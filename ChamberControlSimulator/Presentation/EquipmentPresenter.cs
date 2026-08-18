@@ -10,24 +10,29 @@ namespace ChamberControlSimulator.Presentation
 		private readonly IEquipmentView _view;
 		private readonly ThermalController _controller;
 		private readonly IEquipmentObservationRuntime _observationRuntime;
+		private readonly IEquipmentCommandRuntime _commandRuntime;
 		private readonly CancellationTokenSource _shutdown = new();
 		private readonly object _lifecycleLock = new();
 		private Task? _activeCycle;
+		private Task? _activeCommand;
 		private Task? _teardownTask;
 		private long _pendingElapsedTicks;
 		private int _cycleInProgress;
+		private int _commandInProgress;
 		private int _isDisposed;
 
 		public EquipmentPresenter(
 			IEquipmentView view,
 			ThermalController controller,
-			IEquipmentObservationRuntime observationRuntime)
+			IEquipmentObservationRuntime observationRuntime,
+			IEquipmentCommandRuntime commandRuntime)
 		{
 			_view = view ?? throw new ArgumentNullException(nameof(view));
 			_controller = controller ?? throw new ArgumentNullException(nameof(controller));
 			_observationRuntime = observationRuntime ?? throw new ArgumentNullException(nameof(observationRuntime));
+			_commandRuntime = commandRuntime ?? throw new ArgumentNullException(nameof(commandRuntime));
 
-			_view.StartRequested += OnStartRequested;
+			_view.StartRequested += OnStartRequestedAsync;
 			_view.StopRequested += OnStopRequested;
 			_view.AcknowledgeRequested += OnAcknowledgeRequested;
 			_view.ResetRequested += OnResetRequested;
@@ -50,10 +55,11 @@ namespace ChamberControlSimulator.Presentation
 			{
 				if (_teardownTask is null)
 				{
+					_commandRuntime.StopAdmission();
 					Interlocked.Exchange(ref _isDisposed, 1);
 					_shutdown.Cancel();
 					UnsubscribeViewEvents();
-					_teardownTask = TeardownAsync(_activeCycle);
+					_teardownTask = TeardownAsync(_activeCycle, _activeCommand);
 				}
 
 				teardownTask = _teardownTask;
@@ -62,24 +68,13 @@ namespace ChamberControlSimulator.Presentation
 			return new ValueTask(teardownTask);
 		}
 
-		private async Task TeardownAsync(Task? activeCycle)
+		private async Task TeardownAsync(Task? activeCycle, Task? activeCommand)
 		{
 			try
 			{
-				if (activeCycle is not null)
-				{
-					try
-					{
-						await activeCycle;
-					}
-					catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
-					{
-					}
-					catch (Exception exception)
-					{
-						System.Diagnostics.Trace.TraceError(exception.ToString());
-					}
-				}
+				await Task.WhenAll(
+					ObserveOwnedWorkAsync(activeCycle),
+					ObserveOwnedWorkAsync(activeCommand));
 			}
 			finally
 			{
@@ -94,9 +89,29 @@ namespace ChamberControlSimulator.Presentation
 			}
 		}
 
+		private async Task ObserveOwnedWorkAsync(Task? work)
+		{
+			if (work is null)
+			{
+				return;
+			}
+
+			try
+			{
+				await work;
+			}
+			catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
+			{
+			}
+			catch (Exception exception)
+			{
+				System.Diagnostics.Trace.TraceError(exception.ToString());
+			}
+		}
+
 		private void UnsubscribeViewEvents()
 		{
-			_view.StartRequested -= OnStartRequested;
+			_view.StartRequested -= OnStartRequestedAsync;
 			_view.StopRequested -= OnStopRequested;
 			_view.AcknowledgeRequested -= OnAcknowledgeRequested;
 			_view.ResetRequested -= OnResetRequested;
@@ -115,10 +130,50 @@ namespace ChamberControlSimulator.Presentation
 			_view.ShowEventLog(_controller.EventHistory);
 		}
 
-		private void OnStartRequested(object? sender, EventArgs e)
+		private Task OnStartRequestedAsync()
 		{
-			_controller.Start();
-			RefreshView();
+			if (Volatile.Read(ref _isDisposed) != 0 ||
+				Interlocked.CompareExchange(ref _commandInProgress, 1, 0) != 0)
+			{
+				return Task.CompletedTask;
+			}
+
+			TaskCompletionSource<bool>? activeCommandCompletion = null;
+			try
+			{
+				lock (_lifecycleLock)
+				{
+					if (_teardownTask is not null)
+					{
+						Volatile.Write(ref _commandInProgress, 0);
+						return Task.CompletedTask;
+					}
+
+					activeCommandCompletion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+					_activeCommand = activeCommandCompletion.Task;
+					var activeCommand = _commandRuntime.RequestStartAsync(_shutdown.Token);
+					return CompleteCommandAsync(activeCommand, activeCommandCompletion);
+				}
+			}
+			catch (Exception exception)
+			{
+				if (activeCommandCompletion is not null)
+				{
+					lock (_lifecycleLock)
+					{
+						if (ReferenceEquals(_activeCommand, activeCommandCompletion.Task))
+						{
+							_activeCommand = null;
+						}
+					}
+
+					activeCommandCompletion.TrySetResult(true);
+				}
+
+				System.Diagnostics.Trace.TraceError(exception.ToString());
+				Volatile.Write(ref _commandInProgress, 0);
+				return Task.CompletedTask;
+			}
 		}
 
 		private void OnStopRequested(object? sender, EventArgs e)
@@ -222,6 +277,40 @@ namespace ChamberControlSimulator.Presentation
 				System.Diagnostics.Trace.TraceError(exception.ToString());
 				Volatile.Write(ref _cycleInProgress, 0);
 				return Task.CompletedTask;
+			}
+		}
+
+		private async Task CompleteCommandAsync(
+			Task<ChamberControlSimulator.Application.EquipmentCommandRequestResult> activeCommand,
+			TaskCompletionSource<bool> activeCommandCompletion)
+		{
+			try
+			{
+				await activeCommand;
+				if (Volatile.Read(ref _isDisposed) == 0)
+				{
+					RefreshView();
+				}
+			}
+			catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
+			{
+			}
+			catch (Exception exception)
+			{
+				System.Diagnostics.Trace.TraceError(exception.ToString());
+			}
+			finally
+			{
+				lock (_lifecycleLock)
+				{
+					if (ReferenceEquals(_activeCommand, activeCommandCompletion.Task))
+					{
+						_activeCommand = null;
+					}
+				}
+
+				Volatile.Write(ref _commandInProgress, 0);
+				activeCommandCompletion.TrySetResult(true);
 			}
 		}
 

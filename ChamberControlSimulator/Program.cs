@@ -28,27 +28,32 @@ namespace ChamberControlSimulator
 				SimulationSettings.Illustrative);
 
 			var virtualPlc = new VirtualPlcClient(VirtualPlcOptions.Illustrative);
-			var coordinator = new EquipmentCoordinator(controller, virtualPlc);
+			var commandRuntime = new EquipmentCommandRuntime(
+				controller,
+				virtualPlc,
+				virtualPlc,
+				TimeProvider.System);
 
 			using var form = new Form1();
-			var observationRuntime = CreateObservationRuntime(coordinator, virtualPlc);
+			var observationRuntime = CreateObservationRuntime(commandRuntime, virtualPlc);
 			await using var presenter = new EquipmentPresenter(
 				form,
 				controller,
+				observationRuntime,
 				observationRuntime);
 
 			System.Windows.Forms.Application.Run(form);
 		}
 
 		internal static EquipmentObservationRuntime CreateObservationRuntime(
-			EquipmentCoordinator coordinator,
+			EquipmentCommandRuntime commandRuntime,
 			VirtualPlcClient virtualPlc)
 		{
-			ArgumentNullException.ThrowIfNull(coordinator);
+			ArgumentNullException.ThrowIfNull(commandRuntime);
 			ArgumentNullException.ThrowIfNull(virtualPlc);
 
 			return new EquipmentObservationRuntime(
-				coordinator,
+				commandRuntime,
 				virtualPlc.ObservationInputControl);
 		}
 	}

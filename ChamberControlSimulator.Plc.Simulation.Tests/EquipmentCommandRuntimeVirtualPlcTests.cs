@@ -17,7 +17,7 @@ public sealed class EquipmentCommandRuntimeVirtualPlcTests
 		var options = new VirtualPlcOptions(20d, 5d, TimeSpan.FromSeconds(2));
 		var plc = new VirtualPlcClient(options);
 		var controller = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
-		await using var runtime = new EquipmentCommandRuntime(controller, plc, plc);
+		await using var runtime = new EquipmentCommandRuntime(controller, plc, plc, TimeProvider.System);
 		var baseline = await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
 
 		var request = await runtime.RequestStartAsync(CancellationToken.None);
@@ -45,7 +45,7 @@ public sealed class EquipmentCommandRuntimeVirtualPlcTests
 		var options = new VirtualPlcOptions(20d, 5d, TimeSpan.FromSeconds(1));
 		var plc = new VirtualPlcClient(options);
 		var controller = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
-		await using var runtime = new EquipmentCommandRuntime(controller, plc, plc);
+		await using var runtime = new EquipmentCommandRuntime(controller, plc, plc, TimeProvider.System);
 		await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
 		plc.SimulationControl.SuppressNextAcknowledgement();
 		await runtime.RequestStartAsync(CancellationToken.None);

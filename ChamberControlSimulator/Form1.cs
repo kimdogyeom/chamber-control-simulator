@@ -20,7 +20,7 @@ namespace ChamberControlSimulator
 			cmbRecipe.SelectionChangeCommitted += cmbRecipe_SelectionChangeCommitted;
 		}
 
-		public event EventHandler? StartRequested;
+		public event Func<Task>? StartRequested;
 		public event EventHandler? StopRequested;
 		public event EventHandler? AcknowledgeRequested;
 		public event EventHandler? ResetRequested;
@@ -62,6 +62,19 @@ namespace ChamberControlSimulator
 				{
 					Close();
 				}
+			}
+		}
+
+		private async Task InvokeStartRequestedAsync()
+		{
+			if (StartRequested is null)
+			{
+				return;
+			}
+
+			foreach (var handler in StartRequested.GetInvocationList().Cast<Func<Task>>())
+			{
+				await handler();
 			}
 		}
 
@@ -107,9 +120,16 @@ namespace ChamberControlSimulator
 
 		}
 
-		private void btnStart_Click(object sender, EventArgs e)
+		private async void btnStart_Click(object sender, EventArgs e)
 		{
-			StartRequested?.Invoke(this, EventArgs.Empty);
+			try
+			{
+				await InvokeStartRequestedAsync();
+			}
+			catch (Exception exception)
+			{
+				System.Diagnostics.Trace.TraceError(exception.ToString());
+			}
 		}
 
 		private void btnStop_Click(object sender, EventArgs e)

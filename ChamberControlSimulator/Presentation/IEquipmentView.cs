@@ -7,7 +7,7 @@ namespace ChamberControlSimulator.Presentation
 {
 	public interface IEquipmentView
 	{
-		event EventHandler? StartRequested;
+		event Func<Task>? StartRequested;
 		event EventHandler? StopRequested;
 		event EventHandler? AcknowledgeRequested;
 		event EventHandler? ResetRequested;
