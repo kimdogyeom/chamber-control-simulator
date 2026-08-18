@@ -151,6 +151,45 @@ public sealed class CommandReservationTests
 		Assert.HasCount(1, controller.EventHistory.Where(entry => entry.Event == "Start"));
 	}
 
+	// 목적: owned Stop reservation이 semantic completion에서 정확히 한 번 적용되고 fence를 소비하는지 검증한다.
+	// 예상 결과: first completion만 true이고 Core는 Idle과 one Stop event로 전환한다.
+	// 완료 조건: Stop도 exact ACK authority에서만 one-shot transition한다.
+	[TestMethod]
+	public void TryCompleteAcknowledgedCommand_EligibleOwnedStop_CompletesExactlyOnce()
+	{
+		var controller = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
+		controller.Start();
+		var reservation = controller.TryReserveCommand(ControllerCommandKind.Stop);
+		Assert.IsNotNull(reservation);
+
+		var first = controller.TryCompleteAcknowledgedCommand(reservation);
+		var second = controller.TryCompleteAcknowledgedCommand(reservation);
+
+		Assert.IsTrue(first);
+		Assert.IsFalse(second);
+		Assert.AreEqual(ControllerState.Idle, controller.Snapshot.State);
+		Assert.HasCount(1, controller.EventHistory.Where(entry => entry.Event == "Stop"));
+	}
+
+	// 목적: Recovery-ready Reset reservation이 semantic completion에서 정확히 한 번 적용되는지 검증한다.
+	// 예상 결과: first completion만 true이고 Core는 Idle과 one Reset event로 전환한다.
+	// 완료 조건: Reset이 Recovery eligibility와 exact ACK completion을 우회하지 않는다.
+	[TestMethod]
+	public void TryCompleteAcknowledgedCommand_EligibleOwnedReset_CompletesExactlyOnce()
+	{
+		var controller = CreateRecoveryReadyController();
+		var reservation = controller.TryReserveCommand(ControllerCommandKind.Reset);
+		Assert.IsNotNull(reservation);
+
+		var first = controller.TryCompleteAcknowledgedCommand(reservation);
+		var second = controller.TryCompleteAcknowledgedCommand(reservation);
+
+		Assert.IsTrue(first);
+		Assert.IsFalse(second);
+		Assert.AreEqual(ControllerState.Idle, controller.Snapshot.State);
+		Assert.HasCount(1, controller.EventHistory.Where(entry => entry.Event == "Reset"));
+	}
+
 	// 목적: unsafe door interval로 invalidated된 Start reservation이 safe ABA 뒤 acknowledged 되어도 revive되지 않는지 검증한다.
 	// 예상 결과: completion은 false, Core는 Idle/event-empty, original fence는 replacement reservation을 계속 막는다.
 	// 완료 조건: acknowledged-but-ineligible path가 reservation release나 later safe replay를 허용하지 않는다.
@@ -168,6 +207,23 @@ public sealed class CommandReservationTests
 
 		Assert.IsFalse(completed);
 		Assert.IsNull(replacement);
+		Assert.AreEqual(ControllerState.Idle, controller.Snapshot.State);
+		Assert.IsEmpty(controller.EventHistory);
+	}
+
+	// 목적: Recovery-ready 이전 Reset intent가 reservation fence를 만들지 않는지 검증한다.
+	// 예상 결과: Idle Reset reservation은 null이고 Core state/event가 변하지 않는다.
+	// 완료 조건: ineligible Reset이 output lifecycle authority를 얻을 수 없다.
+	[TestMethod]
+	public void TryReserveCommand_ResetBeforeRecoveryReady_IsIneligibleWithoutFence()
+	{
+		var controller = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
+
+		var rejected = controller.TryReserveCommand(ControllerCommandKind.Reset);
+		var start = controller.TryReserveCommand(ControllerCommandKind.Start);
+
+		Assert.IsNull(rejected);
+		Assert.IsNotNull(start);
 		Assert.AreEqual(ControllerState.Idle, controller.Snapshot.State);
 		Assert.IsEmpty(controller.EventHistory);
 	}
@@ -190,4 +246,15 @@ public sealed class CommandReservationTests
 		Assert.AreEqual(ControllerState.Idle, owner.Snapshot.State);
 		Assert.AreEqual(ControllerState.Idle, other.Snapshot.State);
 	}
+	private static ThermalController CreateRecoveryReadyController()
+	{
+		var controller = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
+		controller.Start();
+		controller.SetDoorOpen(true);
+		controller.SetDoorOpen(false);
+		controller.AcknowledgeAlarm();
+		Assert.AreEqual(ControllerState.Recovery, controller.Snapshot.State);
+		return controller;
+	}
+
 }

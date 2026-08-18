@@ -241,11 +241,11 @@ public sealed class EquipmentCommandRuntimeTests
 		Assert.AreEqual(1, ports.WriteCount);
 	}
 
-	// 목적: T3 composition이 P3 observation constructor를 보존하고 public command request를 Start-only narrow ports로 제한하는지 검증한다.
-	// 예상 결과: P3 constructor는 observation-only, runtime constructor는 separate observation/output ports이고 generic command-kind request가 없다.
-	// 완료 조건: UI, broad IPlcClient, Stop/Reset completion, input/output capability widening 없이 non-UI Start tracer만 노출된다.
+	// 목적: T5 command runtime이 P3 observation boundary를 보존하면서 Start/Stop/Reset narrow request만 노출하는지 검증한다.
+	// 예상 결과: 세 named request method가 있고 public generic command-kind method나 broad IPlcClient field는 없다.
+	// 완료 조건: command-family completeness가 P3 또는 caller authority widening 없이 성립한다.
 	[TestMethod]
-	public void CapabilityBoundary_PreservesP3AndExposesStartOnlyRuntime()
+	public void CapabilityBoundary_PreservesP3AndExposesCommandFamilyRuntime()
 	{
 		var p3Parameters = typeof(EquipmentCoordinator).GetConstructors().Single().GetParameters().Select(parameter => parameter.ParameterType).ToArray();
 		var runtimeParameters = typeof(EquipmentCommandRuntime).GetConstructors().Single().GetParameters().Select(parameter => parameter.ParameterType).ToArray();
@@ -253,9 +253,121 @@ public sealed class EquipmentCommandRuntimeTests
 
 		CollectionAssert.AreEqual(new[] { typeof(ThermalController), typeof(IPlcObservationPort) }, p3Parameters);
 		CollectionAssert.AreEqual(new[] { typeof(ThermalController), typeof(IPlcObservationPort), typeof(IPlcOutputPort), typeof(TimeProvider) }, runtimeParameters);
-		Assert.IsNotNull(publicMethods.SingleOrDefault(method => method.Name == "RequestStartAsync"));
+		CollectionAssert.AreEquivalent(
+			new[] { "CycleAsync", "DisposeAsync", "get_CurrentState", "RequestResetAsync", "RequestStartAsync", "RequestStopAsync", "StopAdmission" },
+			publicMethods.Select(method => method.Name).ToArray());
 		Assert.IsFalse(publicMethods.Any(method => method.GetParameters().Any(parameter => parameter.ParameterType == typeof(ControllerCommandKind))));
 		Assert.IsFalse(typeof(EquipmentCommandRuntime).GetFields(BindingFlags.Instance | BindingFlags.NonPublic).Any(field => field.FieldType == typeof(IPlcClient)));
+	}
+
+	// 목적: successful Start semantic completion 뒤 global fence가 열리고 Stop이 같은 lifecycle로 exact ACK completion하는지 검증한다.
+	// 예상 결과: Start ID 1 completion 뒤 Stop ID 2 Written은 Heating을 유지하고 fresh exact ACK만 Idle/one Stop으로 전환한다.
+	// 완료 조건: success만 next command admission을 열며 Stop receipt나 legacy direct call이 Core를 바꾸지 않는다.
+	[TestMethod]
+	public async Task CommandFamily_StartThenStop_ReleasesFenceOnlyAfterEachExactAcknowledgement()
+	{
+		var controller = CreateController();
+		var ports = new ControlledPlcPorts();
+		ports.EnqueueSnapshot(Snapshot(sequence: 1));
+		await using var runtime = new EquipmentCommandRuntime(controller, ports, ports, TimeProvider.System);
+		await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		var start = await runtime.RequestStartAsync(CancellationToken.None);
+		ports.EnqueueSnapshot(Snapshot(sequence: 2, acknowledgedCommandId: start.CommandId!.Value));
+		var started = await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+
+		var stop = await runtime.RequestStopAsync(CancellationToken.None);
+		Assert.AreEqual(ControllerState.Heating, controller.Snapshot.State);
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.AwaitingAcknowledgement, stop.Disposition);
+		Assert.AreEqual(2L, stop.CommandId);
+		Assert.AreEqual(PlcCommandKind.Stop, ports.LastCommand!.Kind);
+		Assert.AreEqual(ControllerCommandKind.Stop, runtime.CurrentState.Kind);
+		ports.EnqueueSnapshot(Snapshot(sequence: 3, acknowledgedCommandId: stop.CommandId.GetValueOrDefault()));
+		var stopped = await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.Completed, started.CommandDisposition);
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.Completed, stopped.CommandDisposition);
+		Assert.AreEqual(ControllerCommandKind.Stop, runtime.CurrentState.Kind);
+		Assert.AreEqual(ControllerState.Idle, controller.Snapshot.State);
+		Assert.HasCount(1, controller.EventHistory.Where(entry => entry.Event == "Start"));
+		Assert.HasCount(1, controller.EventHistory.Where(entry => entry.Event == "Stop"));
+		Assert.AreEqual(2, ports.WriteCount);
+	}
+
+	// 목적: Recovery-ready 이전 Reset request가 reservation ID와 output write를 만들지 않는지 검증한다.
+	// 예상 결과: AdmissionRejected/null ID/zero write이며 Core는 Idle이다.
+	// 완료 조건: Reset admission은 View state가 아니라 Core Recovery eligibility에 묶인다.
+	[TestMethod]
+	public async Task RequestResetAsync_BeforeRecoveryReady_PerformsNoAdmissionOrWrite()
+	{
+		var controller = CreateController();
+		var ports = new ControlledPlcPorts();
+		ports.EnqueueSnapshot(Snapshot(sequence: 1));
+		await using var runtime = new EquipmentCommandRuntime(controller, ports, ports, TimeProvider.System);
+		await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+
+		var result = await runtime.RequestResetAsync(CancellationToken.None);
+
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.AdmissionRejected, result.Disposition);
+		Assert.IsNull(result.CommandId);
+		Assert.AreEqual(0, ports.WriteCount);
+		Assert.AreEqual(ControllerState.Idle, controller.Snapshot.State);
+	}
+
+	// 목적: eligible Reset Written이 Core를 바꾸지 않고 later exact fresh ACK만 Reset을 한 번 complete하는지 검증한다.
+	// 예상 결과: request 뒤 Recovery, exact ACK 뒤 Idle/Completed/one Reset이며 admitted kind evidence는 Reset이다.
+	// 완료 조건: Reset이 Start/Stop과 같은 semantic ACK 및 Core revalidation lifecycle을 따른다.
+	[TestMethod]
+	public async Task RequestResetAsync_WrittenThenExactFreshAcknowledgement_ResetsExactlyOnce()
+	{
+		var controller = CreateRecoveryReadyController();
+		var ports = new ControlledPlcPorts();
+		ports.EnqueueSnapshot(Snapshot(sequence: 1));
+		await using var runtime = new EquipmentCommandRuntime(controller, ports, ports, TimeProvider.System);
+		await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+
+		var request = await runtime.RequestResetAsync(CancellationToken.None);
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.AwaitingAcknowledgement, request.Disposition);
+		Assert.AreEqual(ControllerState.Recovery, controller.Snapshot.State);
+		Assert.AreEqual(PlcCommandKind.Reset, ports.LastCommand!.Kind);
+		ports.EnqueueSnapshot(Snapshot(sequence: 2, acknowledgedCommandId: request.CommandId!.Value));
+		var completed = await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		ports.EnqueueSnapshot(Snapshot(sequence: 3, acknowledgedCommandId: request.CommandId.Value));
+		var duplicate = await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.Completed, completed.CommandDisposition);
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.Completed, duplicate.CommandDisposition);
+		Assert.AreEqual(ControllerCommandKind.Reset, runtime.CurrentState.Kind);
+		Assert.AreEqual(ControllerState.Idle, controller.Snapshot.State);
+		Assert.HasCount(1, controller.EventHistory.Where(entry => entry.Event == "Reset"));
+	}
+
+	// 목적: unresolved Start receipt timeout이 Stop/Reset을 포함한 모든 command kind의 새 ID/write를 막는지 검증한다.
+	// 예상 결과: Stop과 Reset은 AdmissionRejected이고 original Start ID/kind와 one write만 유지된다.
+	// 완료 조건: Reset이나 Stop이 uncertainty 또는 noncooperative lease를 clear/preempt하지 않는다.
+	[TestMethod]
+	public async Task RequestCommandAsync_AfterReceiptTimeout_BlocksStopAndResetWithoutPreemption()
+	{
+		var ports = new ControlledPlcPorts();
+		var timeProvider = new ManualTimeProvider();
+		ports.EnqueueSnapshot(Snapshot(sequence: 1));
+		var writeCompletion = new TaskCompletionSource<PlcWriteReceipt>(TaskCreationOptions.RunContinuationsAsynchronously);
+		ports.WriteHandler = (_, _) => writeCompletion.Task;
+		await using var runtime = new EquipmentCommandRuntime(CreateController(), ports, ports, timeProvider);
+		await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		var startTask = runtime.RequestStartAsync(CancellationToken.None);
+		await ports.WriteStarted.Task;
+		timeProvider.Advance(TimeSpan.FromSeconds(3));
+		var timedOut = await startTask;
+
+		var stop = await runtime.RequestStopAsync(CancellationToken.None);
+		var reset = await runtime.RequestResetAsync(CancellationToken.None);
+
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.ReceiptTimedOut, timedOut.Disposition);
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.AdmissionRejected, stop.Disposition);
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.AdmissionRejected, reset.Disposition);
+		Assert.AreEqual(ControllerCommandKind.Start, runtime.CurrentState.Kind);
+		Assert.AreEqual(1, ports.WriteCount);
+		writeCompletion.SetResult(new PlcWriteReceipt(1, PlcTransportWriteStatus.Written));
 	}
 
 	// 목적: output write가 invocation 뒤 정확히 3초 동안 미완료이면 receipt-timeout hold가 되고 실제 I/O가 끝날 때까지 shared lease를 유지하는지 검증한다.
@@ -626,6 +738,152 @@ public sealed class EquipmentCommandRuntimeTests
 			System.Diagnostics.Trace.Listeners.Remove(listener);
 			listener.Dispose();
 		}
+	}
+
+	// 목적: Stop/Reset이 prior ACK, same-sequence exact ACK, mismatched ACK를 모두 거절하고 later fresh exact ACK만 complete하는지 검증한다.
+	// 예상 결과: 세 non-authoritative observation 뒤 AwaitingAcknowledgement이고 sequence 5의 exact ID 2에서만 target event 하나가 생긴다.
+	// 완료 조건: command-kind 일반화가 exact identity와 strictly-later accepted observation 규칙을 약화하지 않는다.
+	[TestMethod]
+	[DataRow(ControllerCommandKind.Stop)]
+	[DataRow(ControllerCommandKind.Reset)]
+	public async Task CommandFamily_StaleMismatchedAndNonFreshAcknowledgements_CannotComplete(
+		ControllerCommandKind commandKind)
+	{
+		var controller = CreateController();
+		var ports = new ControlledPlcPorts();
+		ports.EnqueueSnapshot(Snapshot(sequence: 1));
+		await using var runtime = new EquipmentCommandRuntime(controller, ports, ports, TimeProvider.System);
+		await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		var start = await runtime.RequestStartAsync(CancellationToken.None);
+		ports.EnqueueSnapshot(Snapshot(sequence: 2, acknowledgedCommandId: start.CommandId!.Value));
+		await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		PrepareCommandEligibility(controller, commandKind);
+		var request = await RequestCommandAsync(runtime, commandKind);
+		Assert.AreEqual(2L, request.CommandId);
+
+		ports.EnqueueSnapshot(Snapshot(sequence: 3, acknowledgedCommandId: 1));
+		var stale = await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		ports.EnqueueSnapshot(Snapshot(sequence: 3, acknowledgedCommandId: 2));
+		var nonFresh = await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		ports.EnqueueSnapshot(Snapshot(sequence: 4, acknowledgedCommandId: 0));
+		var mismatched = await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		ports.EnqueueSnapshot(Snapshot(sequence: 5, acknowledgedCommandId: 2));
+		var exactFresh = await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.AwaitingAcknowledgement, stale.CommandDisposition);
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.AwaitingAcknowledgement, nonFresh.CommandDisposition);
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.AwaitingAcknowledgement, mismatched.CommandDisposition);
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.Completed, exactFresh.CommandDisposition);
+		Assert.HasCount(1, controller.EventHistory.Where(entry => entry.Event == commandKind.ToString()));
+	}
+
+	// 목적: dispatch 뒤 Core eligibility가 바뀐 Stop/Reset exact ACK가 transition이나 global fence release를 만들지 않는지 검증한다.
+	// 예상 결과: exact ACK는 AcknowledgedButCoreIneligible이고 target event 0, later 세 command는 모두 rejection/write count 2다.
+	// 완료 조건: success-only fence release와 Core reservation revalidation이 command kind마다 유지된다.
+	[TestMethod]
+	[DataRow(ControllerCommandKind.Stop)]
+	[DataRow(ControllerCommandKind.Reset)]
+	public async Task CommandFamily_CoreIneligibleAfterDispatch_HoldsEveryCommandKind(
+		ControllerCommandKind commandKind)
+	{
+		var controller = CreateController();
+		var ports = new ControlledPlcPorts();
+		ports.EnqueueSnapshot(Snapshot(sequence: 1));
+		await using var runtime = new EquipmentCommandRuntime(controller, ports, ports, TimeProvider.System);
+		await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		var start = await runtime.RequestStartAsync(CancellationToken.None);
+		ports.EnqueueSnapshot(Snapshot(sequence: 2, acknowledgedCommandId: start.CommandId!.Value));
+		await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		PrepareCommandEligibility(controller, commandKind);
+		var request = await RequestCommandAsync(runtime, commandKind);
+		Assert.AreEqual(2L, request.CommandId);
+
+		controller.SetDoorOpen(true);
+		ports.EnqueueSnapshot(Snapshot(sequence: 3, acknowledgedCommandId: 2));
+		var ineligible = await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		var laterStart = await runtime.RequestStartAsync(CancellationToken.None);
+		var laterStop = await runtime.RequestStopAsync(CancellationToken.None);
+		var laterReset = await runtime.RequestResetAsync(CancellationToken.None);
+
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.AcknowledgedButCoreIneligible, ineligible.CommandDisposition);
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.AdmissionRejected, laterStart.Disposition);
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.AdmissionRejected, laterStop.Disposition);
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.AdmissionRejected, laterReset.Disposition);
+		Assert.AreEqual(2, ports.WriteCount);
+		Assert.IsEmpty(controller.EventHistory.Where(entry => entry.Event == commandKind.ToString()));
+	}
+
+	// 목적: Stop/Reset ACK deadline 뒤 timeout hold가 모든 command kind를 막고 delayed exact ACK로 revive되지 않는지 검증한다.
+	// 예상 결과: exact 3초에 AcknowledgementTimedOut, 세 later request rejection, delayed exact ACK 뒤에도 timeout/write count 2다.
+	// 완료 조건: T4 monotonic terminal hold가 generalized command family에도 동일하게 적용된다.
+	[TestMethod]
+	[DataRow(ControllerCommandKind.Stop)]
+	[DataRow(ControllerCommandKind.Reset)]
+	public async Task CommandFamily_AcknowledgementTimeout_HoldsAllKindsAndCannotRevive(
+		ControllerCommandKind commandKind)
+	{
+		var controller = CreateController();
+		var ports = new ControlledPlcPorts();
+		var timeProvider = new ManualTimeProvider();
+		ports.EnqueueSnapshot(Snapshot(sequence: 1));
+		await using var runtime = new EquipmentCommandRuntime(controller, ports, ports, timeProvider);
+		await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		var start = await runtime.RequestStartAsync(CancellationToken.None);
+		ports.EnqueueSnapshot(Snapshot(sequence: 2, acknowledgedCommandId: start.CommandId!.Value));
+		await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		PrepareCommandEligibility(controller, commandKind);
+		var request = await RequestCommandAsync(runtime, commandKind);
+		Assert.AreEqual(2L, request.CommandId);
+
+		timeProvider.Advance(TimeSpan.FromSeconds(3));
+		ports.EnqueueSnapshot(Snapshot(sequence: 3, acknowledgedCommandId: 1));
+		var timedOut = await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		var laterStart = await runtime.RequestStartAsync(CancellationToken.None);
+		var laterStop = await runtime.RequestStopAsync(CancellationToken.None);
+		var laterReset = await runtime.RequestResetAsync(CancellationToken.None);
+		ports.EnqueueSnapshot(Snapshot(sequence: 4, acknowledgedCommandId: 2));
+		var delayedExact = await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.AcknowledgementTimedOut, timedOut.CommandDisposition);
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.AdmissionRejected, laterStart.Disposition);
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.AdmissionRejected, laterStop.Disposition);
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.AdmissionRejected, laterReset.Disposition);
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.AcknowledgementTimedOut, delayedExact.CommandDisposition);
+		Assert.AreEqual(2, ports.WriteCount);
+		Assert.IsEmpty(controller.EventHistory.Where(entry => entry.Event == commandKind.ToString()));
+	}
+
+	private static Task<EquipmentCommandRequestResult> RequestCommandAsync(
+		EquipmentCommandRuntime runtime,
+		ControllerCommandKind commandKind) => commandKind switch
+	{
+		ControllerCommandKind.Stop => runtime.RequestStopAsync(CancellationToken.None),
+		ControllerCommandKind.Reset => runtime.RequestResetAsync(CancellationToken.None),
+		_ => throw new ArgumentOutOfRangeException(nameof(commandKind))
+	};
+
+	private static void PrepareCommandEligibility(ThermalController controller, ControllerCommandKind commandKind)
+	{
+		if (commandKind != ControllerCommandKind.Reset)
+		{
+			return;
+		}
+
+		controller.SetDoorOpen(true);
+		controller.SetDoorOpen(false);
+		controller.AcknowledgeAlarm();
+		Assert.AreEqual(ControllerState.Recovery, controller.Snapshot.State);
+	}
+
+	private static ThermalController CreateRecoveryReadyController()
+	{
+		var controller = CreateController();
+		controller.Start();
+		controller.SetDoorOpen(true);
+		controller.SetDoorOpen(false);
+		controller.AcknowledgeAlarm();
+		Assert.AreEqual(ControllerState.Recovery, controller.Snapshot.State);
+		return controller;
 	}
 
 	private static ThermalController CreateController() => new(new Recipe(30, 35), SimulationSettings.Illustrative);

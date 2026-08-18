@@ -21,9 +21,9 @@ namespace ChamberControlSimulator
 		}
 
 		public event Func<Task>? StartRequested;
-		public event EventHandler? StopRequested;
+		public event Func<Task>? StopRequested;
 		public event EventHandler? AcknowledgeRequested;
-		public event EventHandler? ResetRequested;
+		public event Func<Task>? ResetRequested;
 		public event EventHandler? DoorToggleRequested;
 		public event EventHandler? ApplyTemperatureRequested;
 		public event EventHandler? PauseFeedbackRequested;
@@ -65,14 +65,14 @@ namespace ChamberControlSimulator
 			}
 		}
 
-		private async Task InvokeStartRequestedAsync()
+		private static async Task InvokeCommandRequestedAsync(Func<Task>? requested)
 		{
-			if (StartRequested is null)
+			if (requested is null)
 			{
 				return;
 			}
 
-			foreach (var handler in StartRequested.GetInvocationList().Cast<Func<Task>>())
+			foreach (var handler in requested.GetInvocationList().Cast<Func<Task>>())
 			{
 				await handler();
 			}
@@ -124,7 +124,7 @@ namespace ChamberControlSimulator
 		{
 			try
 			{
-				await InvokeStartRequestedAsync();
+				await InvokeCommandRequestedAsync(StartRequested);
 			}
 			catch (Exception exception)
 			{
@@ -132,9 +132,16 @@ namespace ChamberControlSimulator
 			}
 		}
 
-		private void btnStop_Click(object sender, EventArgs e)
+		private async void btnStop_Click(object sender, EventArgs e)
 		{
-			StopRequested?.Invoke(this, EventArgs.Empty);
+			try
+			{
+				await InvokeCommandRequestedAsync(StopRequested);
+			}
+			catch (Exception exception)
+			{
+				System.Diagnostics.Trace.TraceError(exception.ToString());
+			}
 		}
 
 		private void btnAcknowledge_Click(object sender, EventArgs e)
@@ -142,9 +149,16 @@ namespace ChamberControlSimulator
 			AcknowledgeRequested?.Invoke(this, EventArgs.Empty);
 		}
 
-		private void btnReset_Click(object sender, EventArgs e)
+		private async void btnReset_Click(object sender, EventArgs e)
 		{
-			ResetRequested?.Invoke(this, EventArgs.Empty);
+			try
+			{
+				await InvokeCommandRequestedAsync(ResetRequested);
+			}
+			catch (Exception exception)
+			{
+				System.Diagnostics.Trace.TraceError(exception.ToString());
+			}
 		}
 
 		private void btnDoorToggle_Click(object sender, EventArgs e)

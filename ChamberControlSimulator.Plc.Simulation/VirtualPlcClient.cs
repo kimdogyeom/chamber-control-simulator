@@ -183,9 +183,18 @@ public sealed class VirtualPlcClient : IPlcClient
 				continue;
 			}
 
-			if (pending.Kind == PlcCommandKind.Start)
+			switch (pending.Kind)
 			{
-				_heaterEnabled = true;
+				case PlcCommandKind.Start:
+					_heaterEnabled = true;
+					break;
+				case PlcCommandKind.Stop:
+					_heaterEnabled = false;
+					break;
+				case PlcCommandKind.Reset:
+					break;
+				default:
+					throw new InvalidOperationException($"Unsupported pending command kind: {pending.Kind}.");
 			}
 
 			if (!pending.SuppressAcknowledgement)

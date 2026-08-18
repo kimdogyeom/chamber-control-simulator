@@ -55,6 +55,24 @@ public sealed class EquipmentCommandCoordinatorTests
 		Assert.AreEqual(ControllerState.Idle, controller.Snapshot.State);
 	}
 
+	// 목적: Start가 pending인 동안 Stop이 priority/preemption으로 새 reservation이나 ID를 얻지 않는지 검증한다.
+	// 예상 결과: Stop은 Busy이고 original Start ID와 pending authority가 유지된다.
+	// 완료 조건: one global command fence가 command kind와 무관하게 적용된다.
+	[TestMethod]
+	public void TryAdmit_WhenStartPending_StopDoesNotPreemptOrAllocate()
+	{
+		var controller = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
+		var coordinator = new EquipmentCommandCoordinator(controller, new ControlledOutputPort());
+		var start = coordinator.TryAdmit(ControllerCommandKind.Start);
+
+		var stop = coordinator.TryAdmit(ControllerCommandKind.Stop);
+
+		Assert.AreEqual(EquipmentCommandAdmissionDisposition.Busy, stop.Disposition);
+		Assert.IsNull(stop.Admission);
+		Assert.AreSame(start.Admission, coordinator.PendingCommand);
+		Assert.AreEqual(1L, start.Admission!.CommandId);
+	}
+
 	// 목적: concurrent admission requests에서도 lock이 exactly one command ID와 one pending reservation만 허용하고 Core state/event가 바뀌지 않는지 검증한다.
 	// 예상 결과: 동시에 시작한 여덟 요청 중 하나만 Accepted ID 1이고 나머지는 Busy이며 Core는 Idle/event-empty다.
 	// 완료 조건: async dispatch 전 T1 admission gate가 race로 duplicate command나 semantic Core transition을 만들지 않는다.
@@ -180,6 +198,55 @@ public sealed class EquipmentCommandCoordinatorTests
 		Assert.AreEqual(ControllerState.Idle, controller.Snapshot.State);
 		Assert.IsEmpty(controller.EventHistory);
 		Assert.AreEqual(EquipmentCommandAdmissionDisposition.Busy, coordinator.TryAdmit(ControllerCommandKind.Stop).Disposition);
+	}
+
+	// 목적: exact acknowledged Stop completion이 성공한 뒤에만 coordinator fence가 다음 eligible command에 열리는지 검증한다.
+	// 예상 결과: Written은 Heating을 유지하고 completion 뒤 Idle/one Stop이며 next Start는 ID 2로 accepted다.
+	// 완료 조건: successful semantic completion만 global duplicate fence를 release하고 receipt는 release하지 않는다.
+	[TestMethod]
+	public async Task TryCompleteAcknowledgedCommand_StopSuccess_ReleasesFenceForNextCommand()
+	{
+		var controller = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
+		controller.Start();
+		var coordinator = new EquipmentCommandCoordinator(controller, new ControlledOutputPort());
+		var stop = coordinator.TryAdmit(ControllerCommandKind.Stop).Admission;
+		Assert.IsNotNull(stop);
+		await coordinator.DispatchPendingAsync(CancellationToken.None);
+		Assert.AreEqual(ControllerState.Heating, controller.Snapshot.State);
+
+		var completed = TryCompleteAcknowledgedCommand(coordinator, stop.CommandId);
+		var duplicate = TryCompleteAcknowledgedCommand(coordinator, stop.CommandId);
+		var next = coordinator.TryAdmit(ControllerCommandKind.Start);
+
+		Assert.IsTrue(completed);
+		Assert.IsFalse(duplicate);
+		Assert.AreEqual(ControllerState.Idle, controller.Snapshot.State);
+		Assert.HasCount(1, controller.EventHistory.Where(entry => entry.Event == "Stop"));
+		Assert.AreEqual(EquipmentCommandAdmissionDisposition.Accepted, next.Disposition);
+		Assert.AreEqual(2L, next.Admission!.CommandId);
+	}
+
+	// 목적: exact acknowledged Reset completion만 Recovery state와 coordinator fence를 소비하는지 검증한다.
+	// 예상 결과: Written 뒤 Recovery가 유지되고 completion 뒤 Idle/one Reset이며 next Start는 ID 2다.
+	// 완료 조건: Reset receipt가 Core recovery나 duplicate fence release shortcut이 아니다.
+	[TestMethod]
+	public async Task TryCompleteAcknowledgedCommand_ResetSuccess_ReleasesFenceOnlyAfterCoreRevalidation()
+	{
+		var controller = CreateRecoveryReadyController();
+		var coordinator = new EquipmentCommandCoordinator(controller, new ControlledOutputPort());
+		var reset = coordinator.TryAdmit(ControllerCommandKind.Reset).Admission;
+		Assert.IsNotNull(reset);
+		await coordinator.DispatchPendingAsync(CancellationToken.None);
+		Assert.AreEqual(ControllerState.Recovery, controller.Snapshot.State);
+
+		var completed = TryCompleteAcknowledgedCommand(coordinator, reset.CommandId);
+		var next = coordinator.TryAdmit(ControllerCommandKind.Start);
+
+		Assert.IsTrue(completed);
+		Assert.AreEqual(ControllerState.Idle, controller.Snapshot.State);
+		Assert.HasCount(1, controller.EventHistory.Where(entry => entry.Event == "Reset"));
+		Assert.AreEqual(EquipmentCommandAdmissionDisposition.Accepted, next.Disposition);
+		Assert.AreEqual(2L, next.Admission!.CommandId);
 	}
 
 	// 목적: matching current Failed receipt가 delivery uncertainty를 해소하거나 retry 가능한 상태로 바뀌지 않는지 검증한다.
@@ -591,4 +658,24 @@ public sealed class EquipmentCommandCoordinatorTests
 
 		throw new FileNotFoundException("Repository source file was not found from the test output directory.", relativePath);
 	}
+	private static bool TryCompleteAcknowledgedCommand(EquipmentCommandCoordinator coordinator, long commandId)
+	{
+		var method = typeof(EquipmentCommandCoordinator).GetMethod(
+			"TryCompleteAcknowledgedCommand",
+			BindingFlags.Instance | BindingFlags.NonPublic);
+		Assert.IsNotNull(method);
+		return (bool)method.Invoke(coordinator, [commandId])!;
+	}
+
+	private static ThermalController CreateRecoveryReadyController()
+	{
+		var controller = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
+		controller.Start();
+		controller.SetDoorOpen(true);
+		controller.SetDoorOpen(false);
+		controller.AcknowledgeAlarm();
+		Assert.AreEqual(ControllerState.Recovery, controller.Snapshot.State);
+		return controller;
+	}
+
 }

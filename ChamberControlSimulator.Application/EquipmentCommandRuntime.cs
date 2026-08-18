@@ -21,6 +21,7 @@ public sealed class EquipmentCommandRuntime : IAsyncDisposable
 	private EquipmentCycleResult? _latestObservationResult;
 	private long? _preDispatchObservationSequence;
 	private long? _pendingCommandId;
+	private ControllerCommandKind? _pendingCommandKind;
 	private long? _writeInvokedTimestamp;
 	private long? _acknowledgementStartedTimestamp;
 	private int _acceptingAdmission = 1;
@@ -87,9 +88,25 @@ public sealed class EquipmentCommandRuntime : IAsyncDisposable
 		}
 	}
 
-	public async Task<EquipmentCommandRequestResult> RequestStartAsync(CancellationToken cancellationToken)
+	public Task<EquipmentCommandRequestResult> RequestStartAsync(CancellationToken cancellationToken) =>
+		RequestCommandAsync(ControllerCommandKind.Start, cancellationToken);
+
+	public Task<EquipmentCommandRequestResult> RequestStopAsync(CancellationToken cancellationToken) =>
+		RequestCommandAsync(ControllerCommandKind.Stop, cancellationToken);
+
+	public Task<EquipmentCommandRequestResult> RequestResetAsync(CancellationToken cancellationToken) =>
+		RequestCommandAsync(ControllerCommandKind.Reset, cancellationToken);
+
+	private async Task<EquipmentCommandRequestResult> RequestCommandAsync(
+		ControllerCommandKind kind,
+		CancellationToken cancellationToken)
 	{
-		if (Volatile.Read(ref _acceptingAdmission) == 0 || CurrentState.CommandId is not null)
+		if (!Enum.IsDefined(kind))
+		{
+			throw new ArgumentOutOfRangeException(nameof(kind));
+		}
+
+		if (Volatile.Read(ref _acceptingAdmission) == 0 || HasOutstandingCommand(CurrentState))
 		{
 			return RejectedRequest();
 		}
@@ -100,7 +117,7 @@ public sealed class EquipmentCommandRuntime : IAsyncDisposable
 		try
 		{
 			ThrowIfDisposed();
-			if (Volatile.Read(ref _acceptingAdmission) == 0 || CurrentState.CommandId is not null)
+			if (Volatile.Read(ref _acceptingAdmission) == 0 || HasOutstandingCommand(CurrentState))
 			{
 				return RejectedRequest();
 			}
@@ -117,7 +134,7 @@ public sealed class EquipmentCommandRuntime : IAsyncDisposable
 			}
 
 			var admission = _commandCoordinator.TryAdmitAfter(
-				ControllerCommandKind.Start,
+				kind,
 				baseline.InputSnapshot.AcknowledgedCommandId);
 			if (admission.Disposition != EquipmentCommandAdmissionDisposition.Accepted || admission.Admission is null)
 			{
@@ -126,13 +143,14 @@ public sealed class EquipmentCommandRuntime : IAsyncDisposable
 			}
 
 			_pendingCommandId = admission.Admission.CommandId;
+			_pendingCommandKind = admission.Admission.Kind;
 			_preDispatchObservationSequence = baseline.InputSnapshot.ObservationSequence;
 			_writeInvokedTimestamp = _timeProvider.GetTimestamp();
 			_acknowledgementStartedTimestamp = null;
 			SetState(
 				EquipmentCommandLifecycleDisposition.Writing,
 				_pendingCommandId,
-				ControllerCommandKind.Start);
+				_pendingCommandKind);
 
 			using var deadlineCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 			var deadlineTask = Task.Delay(ReceiptDeadline, _timeProvider, deadlineCancellation.Token);
@@ -172,7 +190,7 @@ public sealed class EquipmentCommandRuntime : IAsyncDisposable
 				SetState(
 					EquipmentCommandLifecycleDisposition.AwaitingAcknowledgement,
 					_pendingCommandId,
-					ControllerCommandKind.Start);
+					_pendingCommandKind);
 			}
 			else
 			{
@@ -274,9 +292,15 @@ public sealed class EquipmentCommandRuntime : IAsyncDisposable
 			return;
 		}
 
-		SetTerminalState(_commandCoordinator.TryCompleteAcknowledgedStart(_pendingCommandId.Value)
-			? EquipmentCommandLifecycleDisposition.Completed
-			: EquipmentCommandLifecycleDisposition.AcknowledgedButCoreIneligible);
+		if (_commandCoordinator.TryCompleteAcknowledgedCommand(_pendingCommandId.Value))
+		{
+			SetTerminalState(EquipmentCommandLifecycleDisposition.Completed);
+			ClearCompletedCommand();
+		}
+		else
+		{
+			SetTerminalState(EquipmentCommandLifecycleDisposition.AcknowledgedButCoreIneligible);
+		}
 	}
 
 	private void SetState(
@@ -295,7 +319,19 @@ public sealed class EquipmentCommandRuntime : IAsyncDisposable
 	}
 
 	private void SetTerminalState(EquipmentCommandLifecycleDisposition disposition) =>
-		SetState(disposition, _pendingCommandId, ControllerCommandKind.Start);
+		SetState(disposition, _pendingCommandId, _pendingCommandKind);
+
+	private static bool HasOutstandingCommand(EquipmentCommandLifecycleState state) =>
+		state.CommandId is not null && state.Disposition != EquipmentCommandLifecycleDisposition.Completed;
+
+	private void ClearCompletedCommand()
+	{
+		_pendingCommandId = null;
+		_pendingCommandKind = null;
+		_preDispatchObservationSequence = null;
+		_writeInvokedTimestamp = null;
+		_acknowledgementStartedTimestamp = null;
+	}
 
 	private void HandOffGateUntilWriteSettles(Task<EquipmentCommandTransportResult> writeTask) =>
 		_ = ReleaseGateAfterWriteSettlesAsync(writeTask);

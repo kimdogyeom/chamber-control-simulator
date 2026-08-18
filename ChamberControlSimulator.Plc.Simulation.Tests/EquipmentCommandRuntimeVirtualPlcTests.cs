@@ -64,6 +64,115 @@ public sealed class EquipmentCommandRuntimeVirtualPlcTests
 		Assert.IsEmpty(controller.EventHistory);
 	}
 
+	// 목적: virtual Stop이 receipt가 아니라 modeled semantic point에서 heater를 끄고 exact ACK 뒤 Core Stop을 complete하는지 검증한다.
+	// 예상 결과: due 전에는 Heating/temperature 상승이 유지되고 due에서 ID 2 ACK/Idle, 이후 temperature는 고정된다.
+	// 완료 조건: segmented virtual time과 successful Start fence release를 거친 Stop vertical tracer가 성립한다.
+	[TestMethod]
+	public async Task StopTracer_ExactFreshVirtualAcknowledgement_DisablesHeatAtSemanticPointAndStopsCore()
+	{
+		var plc = new VirtualPlcClient(new VirtualPlcOptions(20d, 5d, TimeSpan.FromSeconds(1)));
+		var controller = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
+		await using var runtime = new EquipmentCommandRuntime(controller, plc, plc, TimeProvider.System);
+		await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		var start = await runtime.RequestStartAsync(CancellationToken.None);
+		plc.SimulationControl.Advance(TimeSpan.FromSeconds(1));
+		await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+
+		var stop = await runtime.RequestStopAsync(CancellationToken.None);
+		plc.SimulationControl.Advance(TimeSpan.FromMilliseconds(500));
+		var beforeStop = await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		plc.SimulationControl.Advance(TimeSpan.FromMilliseconds(500));
+		var exactStop = await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		plc.SimulationControl.Advance(TimeSpan.FromSeconds(1));
+		var afterStop = await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+
+		Assert.AreEqual(1L, start.CommandId);
+		Assert.AreEqual(2L, stop.CommandId);
+		Assert.AreEqual(22.5d, beforeStop.ObservationResult.InputSnapshot!.CurrentTemperature, 0.0001d);
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.AwaitingAcknowledgement, beforeStop.CommandDisposition);
+		Assert.AreEqual(25d, exactStop.ObservationResult.InputSnapshot!.CurrentTemperature, 0.0001d);
+		Assert.AreEqual(stop.CommandId, exactStop.ObservationResult.InputSnapshot.AcknowledgedCommandId);
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.Completed, exactStop.CommandDisposition);
+		Assert.AreEqual(25d, afterStop.ObservationResult.InputSnapshot!.CurrentTemperature, 0.0001d);
+		Assert.AreEqual(ControllerState.Idle, controller.Snapshot.State);
+		Assert.HasCount(1, controller.EventHistory.Where(entry => entry.Event == "Stop"));
+	}
+
+	// 목적: suppressed Stop ACK에서도 virtual heater-off effect는 semantic time에 적용되지만 Core Stop은 unconfirmed hold인지 검증한다.
+	// 예상 결과: due 뒤 ACK는 prior Start ID, temperature는 25에서 고정, runtime/Core는 AwaitingAcknowledgement/Heating이다.
+	// 완료 조건: suppressed ACK가 no-effect 증거 또는 implicit Core completion으로 해석되지 않는다.
+	[TestMethod]
+	public async Task StopTracer_SuppressedAck_AppliesHeaterOffButKeepsCoreUncompleted()
+	{
+		var plc = new VirtualPlcClient(new VirtualPlcOptions(20d, 5d, TimeSpan.FromSeconds(1)));
+		var controller = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
+		await using var runtime = new EquipmentCommandRuntime(controller, plc, plc, TimeProvider.System);
+		await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		var start = await runtime.RequestStartAsync(CancellationToken.None);
+		plc.SimulationControl.Advance(TimeSpan.FromSeconds(1));
+		await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		plc.SimulationControl.SuppressNextAcknowledgement();
+		await runtime.RequestStopAsync(CancellationToken.None);
+
+		plc.SimulationControl.Advance(TimeSpan.FromSeconds(1));
+		var semanticPoint = await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		plc.SimulationControl.Advance(TimeSpan.FromSeconds(1));
+		var afterStop = await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+
+		Assert.AreEqual(start.CommandId, semanticPoint.ObservationResult.InputSnapshot!.AcknowledgedCommandId);
+		Assert.AreEqual(25d, semanticPoint.ObservationResult.InputSnapshot.CurrentTemperature, 0.0001d);
+		Assert.AreEqual(25d, afterStop.ObservationResult.InputSnapshot!.CurrentTemperature, 0.0001d);
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.AwaitingAcknowledgement, afterStop.CommandDisposition);
+		Assert.AreEqual(ControllerState.Heating, controller.Snapshot.State);
+		Assert.IsEmpty(controller.EventHistory.Where(entry => entry.Event == "Stop"));
+	}
+
+	// 목적: virtual Reset이 plant shortcut 없이 modeled semantic ACK만 제공하고 Core Recovery revalidation 뒤 complete하는지 검증한다.
+	// 예상 결과: Written 뒤 Recovery/20도, due exact ACK 뒤 Idle/one Reset이며 virtual temperature는 20도다.
+	// 완료 조건: Reset simulation은 command/ACK behavior만 모델링하고 plant/alarm/safety shortcut을 만들지 않는다.
+	[TestMethod]
+	public async Task ResetTracer_ExactFreshVirtualAcknowledgement_ResetsCoreWithoutPlantShortcut()
+	{
+		var plc = new VirtualPlcClient(new VirtualPlcOptions(20d, 5d, TimeSpan.FromSeconds(1)));
+		var controller = CreateRecoveryReadyController();
+		await using var runtime = new EquipmentCommandRuntime(controller, plc, plc, TimeProvider.System);
+		await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+
+		var reset = await runtime.RequestResetAsync(CancellationToken.None);
+		Assert.AreEqual(ControllerState.Recovery, controller.Snapshot.State);
+		plc.SimulationControl.Advance(TimeSpan.FromSeconds(1));
+		var exactReset = await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+
+		Assert.AreEqual(reset.CommandId, exactReset.ObservationResult.InputSnapshot!.AcknowledgedCommandId);
+		Assert.AreEqual(20d, exactReset.ObservationResult.InputSnapshot.CurrentTemperature);
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.Completed, exactReset.CommandDisposition);
+		Assert.AreEqual(ControllerState.Idle, controller.Snapshot.State);
+		Assert.HasCount(1, controller.EventHistory.Where(entry => entry.Event == "Reset"));
+	}
+
+	// 목적: suppressed Reset ACK가 virtual plant를 바꾸거나 Core uncertainty를 자동 해소하지 않는지 검증한다.
+	// 예상 결과: semantic time 뒤 ACK 0/temperature 20/Recovery/AwaitingAcknowledgement가 유지된다.
+	// 완료 조건: Reset request나 absent ACK가 recovery/reconciliation/plant reset shortcut이 아니다.
+	[TestMethod]
+	public async Task ResetTracer_SuppressedAck_KeepsPlantAndCoreUnconfirmed()
+	{
+		var plc = new VirtualPlcClient(new VirtualPlcOptions(20d, 5d, TimeSpan.FromSeconds(1)));
+		var controller = CreateRecoveryReadyController();
+		await using var runtime = new EquipmentCommandRuntime(controller, plc, plc, TimeProvider.System);
+		await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		plc.SimulationControl.SuppressNextAcknowledgement();
+		await runtime.RequestResetAsync(CancellationToken.None);
+
+		plc.SimulationControl.Advance(TimeSpan.FromSeconds(1));
+		var semanticPoint = await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+
+		Assert.AreEqual(0L, semanticPoint.ObservationResult.InputSnapshot!.AcknowledgedCommandId);
+		Assert.AreEqual(20d, semanticPoint.ObservationResult.InputSnapshot.CurrentTemperature);
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.AwaitingAcknowledgement, semanticPoint.CommandDisposition);
+		Assert.AreEqual(ControllerState.Recovery, controller.Snapshot.State);
+		Assert.IsEmpty(controller.EventHistory.Where(entry => entry.Event == "Reset"));
+	}
+
 	// 목적: P3-only EquipmentCoordinator cycle이 queued Start의 virtual command time이나 ACK state를 진행하지 않는지 검증한다.
 	// 예상 결과: explicit Advance 없이 반복 read cycle의 temperature 20과 ACK 0이 유지된다.
 	// 완료 조건: P3 observation path가 VirtualPlcSimulationControl authority를 암묵적으로 얻지 않는다.
@@ -85,4 +194,15 @@ public sealed class EquipmentCommandRuntimeVirtualPlcTests
 		Assert.AreEqual(20d, second.InputSnapshot.CurrentTemperature);
 		Assert.AreEqual(ControllerState.Idle, controller.Snapshot.State);
 	}
+	private static ThermalController CreateRecoveryReadyController()
+	{
+		var controller = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
+		controller.Start();
+		controller.SetDoorOpen(true);
+		controller.SetDoorOpen(false);
+		controller.AcknowledgeAlarm();
+		Assert.AreEqual(ControllerState.Recovery, controller.Snapshot.State);
+		return controller;
+	}
+
 }

@@ -33,9 +33,9 @@ namespace ChamberControlSimulator.Presentation
 			_commandRuntime = commandRuntime ?? throw new ArgumentNullException(nameof(commandRuntime));
 
 			_view.StartRequested += OnStartRequestedAsync;
-			_view.StopRequested += OnStopRequested;
+			_view.StopRequested += OnStopRequestedAsync;
 			_view.AcknowledgeRequested += OnAcknowledgeRequested;
-			_view.ResetRequested += OnResetRequested;
+			_view.ResetRequested += OnResetRequestedAsync;
 			_view.DoorToggleRequested += OnDoorToggleRequested;
 			_view.ApplyTemperatureRequested += OnApplyTemperatureRequested;
 			_view.PauseFeedbackRequested += OnPauseFeedbackRequested;
@@ -112,9 +112,9 @@ namespace ChamberControlSimulator.Presentation
 		private void UnsubscribeViewEvents()
 		{
 			_view.StartRequested -= OnStartRequestedAsync;
-			_view.StopRequested -= OnStopRequested;
+			_view.StopRequested -= OnStopRequestedAsync;
 			_view.AcknowledgeRequested -= OnAcknowledgeRequested;
-			_view.ResetRequested -= OnResetRequested;
+			_view.ResetRequested -= OnResetRequestedAsync;
 			_view.DoorToggleRequested -= OnDoorToggleRequested;
 			_view.ApplyTemperatureRequested -= OnApplyTemperatureRequested;
 			_view.PauseFeedbackRequested -= OnPauseFeedbackRequested;
@@ -130,7 +130,17 @@ namespace ChamberControlSimulator.Presentation
 			_view.ShowEventLog(_controller.EventHistory);
 		}
 
-		private Task OnStartRequestedAsync()
+		private Task OnStartRequestedAsync() =>
+			OnCommandRequestedAsync(_commandRuntime.RequestStartAsync);
+
+		private Task OnStopRequestedAsync() =>
+			OnCommandRequestedAsync(_commandRuntime.RequestStopAsync);
+
+		private Task OnResetRequestedAsync() =>
+			OnCommandRequestedAsync(_commandRuntime.RequestResetAsync);
+
+		private Task OnCommandRequestedAsync(
+			Func<CancellationToken, Task<ChamberControlSimulator.Application.EquipmentCommandRequestResult>> requestCommand)
 		{
 			if (Volatile.Read(ref _isDisposed) != 0 ||
 				Interlocked.CompareExchange(ref _commandInProgress, 1, 0) != 0)
@@ -151,7 +161,7 @@ namespace ChamberControlSimulator.Presentation
 
 					activeCommandCompletion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 					_activeCommand = activeCommandCompletion.Task;
-					var activeCommand = _commandRuntime.RequestStartAsync(_shutdown.Token);
+					var activeCommand = requestCommand(_shutdown.Token);
 					return CompleteCommandAsync(activeCommand, activeCommandCompletion);
 				}
 			}
@@ -176,21 +186,9 @@ namespace ChamberControlSimulator.Presentation
 			}
 		}
 
-		private void OnStopRequested(object? sender, EventArgs e)
-		{
-			_controller.Stop();
-			RefreshView();
-		}
-
 		private void OnAcknowledgeRequested(object? sender, EventArgs e)
 		{
 			_controller.AcknowledgeAlarm();
-			RefreshView();
-		}
-
-		private void OnResetRequested(object? sender, EventArgs e)
-		{
-			_controller.Reset();
 			RefreshView();
 		}
 

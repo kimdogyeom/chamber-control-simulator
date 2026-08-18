@@ -197,13 +197,12 @@ public sealed class EquipmentCommandCoordinator
 		return new EquipmentCommandTransportResult(pendingCommand.CommandId, disposition);
 	}
 
-	internal bool TryCompleteAcknowledgedStart(long commandId)
+	internal bool TryCompleteAcknowledgedCommand(long commandId)
 	{
 		lock (_gate)
 		{
 			if (_pendingCommand is null ||
 				_pendingCommand.CommandId != commandId ||
-				_pendingCommand.Kind != ControllerCommandKind.Start ||
 				_reservation is null ||
 				_dispatchStarted == false ||
 				_completionAttempted)
@@ -212,7 +211,16 @@ public sealed class EquipmentCommandCoordinator
 			}
 
 			_completionAttempted = true;
-			return _controller.TryCompleteAcknowledgedCommand(_reservation);
+			if (!_controller.TryCompleteAcknowledgedCommand(_reservation))
+			{
+				return false;
+			}
+
+			_pendingCommand = null;
+			_reservation = null;
+			_dispatchStarted = false;
+			_completionAttempted = false;
+			return true;
 		}
 	}
 

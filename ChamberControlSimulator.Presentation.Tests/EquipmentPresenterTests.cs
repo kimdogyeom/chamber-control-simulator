@@ -30,22 +30,23 @@ public sealed class EquipmentPresenterTests
 		Assert.IsEmpty(view.LastEventLog);
 	}
 
-	// 목적: WinForms timer와 Form closing이 async observation cycle 및 teardown completion을 await할 수 있는 View contract인지 검증한다.
-	// 예상 결과: StartRequested와 ClosingRequested는 Func<Task>, TimerTicked는 Func<TimerTickedEventArgs, Task> handler를 노출한다.
-	// 완료 조건: Form이 busy elapsed와 close teardown을 fire-and-forget 하지 않는 awaitable seam을 가진다.
+	// 목적: Start/Stop/Reset command와 timer/closing lifecycle이 모두 owned awaitable View contract인지 검증한다.
+	// 예상 결과: 세 command event와 ClosingRequested는 Func<Task>, TimerTicked는 Func<TimerTickedEventArgs, Task>다.
+	// 완료 조건: command-family UI routing과 teardown이 fire-and-forget seam을 갖지 않는다.
 	[TestMethod]
-	public void ViewLifecycleEvents_ExposeAwaitableTimerAndClosingHandlers()
+	public void ViewLifecycleEvents_ExposeAwaitableCommandTimerAndClosingHandlers()
 	{
 		var startRequested = typeof(IEquipmentView).GetEvent(nameof(IEquipmentView.StartRequested));
+		var stopRequested = typeof(IEquipmentView).GetEvent(nameof(IEquipmentView.StopRequested));
+		var resetRequested = typeof(IEquipmentView).GetEvent(nameof(IEquipmentView.ResetRequested));
 		var timerTicked = typeof(IEquipmentView).GetEvent(nameof(IEquipmentView.TimerTicked));
 		var closingRequested = typeof(IEquipmentView).GetEvent(nameof(IEquipmentView.ClosingRequested));
 
-		Assert.IsNotNull(startRequested);
-		Assert.IsNotNull(timerTicked);
-		Assert.IsNotNull(closingRequested);
-		Assert.AreEqual(typeof(Func<Task>), startRequested.EventHandlerType);
-		Assert.AreEqual(typeof(Func<TimerTickedEventArgs, Task>), timerTicked.EventHandlerType);
-		Assert.AreEqual(typeof(Func<Task>), closingRequested.EventHandlerType);
+		Assert.AreEqual(typeof(Func<Task>), startRequested!.EventHandlerType);
+		Assert.AreEqual(typeof(Func<Task>), stopRequested!.EventHandlerType);
+		Assert.AreEqual(typeof(Func<Task>), resetRequested!.EventHandlerType);
+		Assert.AreEqual(typeof(Func<TimerTickedEventArgs, Task>), timerTicked!.EventHandlerType);
+		Assert.AreEqual(typeof(Func<Task>), closingRequested!.EventHandlerType);
 	}
 
 	// 목적: Timer tick이 observation runtime cycle 이후 View를 refresh하고 direct Core Tick으로 plant temperature를 합성하지 않는지 검증한다.
@@ -562,11 +563,85 @@ public sealed class EquipmentPresenterTests
 		Assert.IsEmpty(controller.EventHistory);
 	}
 
-	// 목적: Form closing이 active command admission을 먼저 닫고 owned cancellation을 관찰한 뒤 runtime을 한 번 dispose하는지 검증한다.
-	// 예상 결과: cancellation 시 StopAdmission이 이미 호출되어 있고 close completion 뒤 dispose count 1, late snapshot render 0이다.
-	// 완료 조건: cancellation을 safe non-dispatch로 오인하지 않으면서 admission/cancel/join/dispose 순서를 보장한다.
+	// 목적: awaitable Stop request가 command runtime을 통해서만 흐르고 legacy direct Core Stop을 호출하지 않는지 검증한다.
+	// 예상 결과: handler는 controlled completion까지 대기하고 runtime kind는 Stop이며 Core는 Heating/no Stop event다.
+	// 완료 조건: Stop이 priority/preemption 또는 direct-Core UI shortcut을 갖지 않는다.
 	[TestMethod]
-	public async Task ClosingRequested_StopsAdmissionCancelsAndJoinsActiveCommandWithoutLateRender()
+	public async Task StopRequestedAsync_AwaitsCommandRuntimeWithoutDirectCoreStop()
+	{
+		var view = new FakeEquipmentView();
+		var controller = CreateController();
+		controller.Start();
+		var runtime = new BlockingCommandObservationRuntime();
+		await using var presenter = CreatePresenter(view, controller, runtime, runtime);
+
+		var requestTask = view.RaiseStopRequestedAsync();
+		await runtime.RequestStarted;
+
+		Assert.IsFalse(requestTask.IsCompleted);
+		Assert.AreEqual(ControllerCommandKind.Stop, runtime.LastRequestedKind);
+		Assert.AreEqual(ControllerState.Heating, controller.Snapshot.State);
+		Assert.IsEmpty(controller.EventHistory.Where(entry => entry.Event == "Stop"));
+		runtime.ReleaseRequest();
+		await requestTask;
+		Assert.AreEqual(1, runtime.RequestCount);
+		Assert.AreEqual(ControllerState.Heating, controller.Snapshot.State);
+	}
+
+	// 목적: awaitable Reset request가 command runtime을 통해서만 흐르고 legacy direct Core Reset을 호출하지 않는지 검증한다.
+	// 예상 결과: handler는 controlled completion까지 대기하고 runtime kind는 Reset이며 Core는 Recovery/no Reset event다.
+	// 완료 조건: Reset UI request가 Core Recovery policy나 semantic ACK를 우회하지 않는다.
+	[TestMethod]
+	public async Task ResetRequestedAsync_AwaitsCommandRuntimeWithoutDirectCoreReset()
+	{
+		var view = new FakeEquipmentView();
+		var controller = CreateRecoveryReadyController();
+		var runtime = new BlockingCommandObservationRuntime();
+		await using var presenter = CreatePresenter(view, controller, runtime, runtime);
+
+		var requestTask = view.RaiseResetRequestedAsync();
+		await runtime.RequestStarted;
+
+		Assert.IsFalse(requestTask.IsCompleted);
+		Assert.AreEqual(ControllerCommandKind.Reset, runtime.LastRequestedKind);
+		Assert.AreEqual(ControllerState.Recovery, controller.Snapshot.State);
+		Assert.IsEmpty(controller.EventHistory.Where(entry => entry.Event == "Reset"));
+		runtime.ReleaseRequest();
+		await requestTask;
+		Assert.AreEqual(1, runtime.RequestCount);
+		Assert.AreEqual(ControllerState.Recovery, controller.Snapshot.State);
+	}
+
+	// 목적: one Presenter command owner가 active Start 동안 Stop/Reset re-entry를 종류와 무관하게 차단하는지 검증한다.
+	// 예상 결과: Stop/Reset View task는 추가 runtime request 없이 끝나고 original Start request count만 1이다.
+	// 완료 조건: Stop no-preemption과 global command invocation fence가 UI boundary에서도 유지된다.
+	[TestMethod]
+	public async Task CommandRequestedAsync_WhileAnotherKindIsActive_DoesNotStartSecondOwnedRequest()
+	{
+		var view = new FakeEquipmentView();
+		var runtime = new BlockingCommandObservationRuntime();
+		await using var presenter = CreatePresenter(view, CreateController(), runtime, runtime);
+		var startTask = view.RaiseStartRequestedAsync();
+		await runtime.RequestStarted;
+
+		await view.RaiseStopRequestedAsync();
+		await view.RaiseResetRequestedAsync();
+
+		Assert.AreEqual(1, runtime.RequestCount);
+		Assert.AreEqual(ControllerCommandKind.Start, runtime.LastRequestedKind);
+		runtime.ReleaseRequest();
+		await startTask;
+	}
+
+	// 목적: Form closing이 active Start/Stop/Reset admission을 먼저 닫고 owned cancellation을 관찰한 뒤 runtime을 한 번 dispose하는지 검증한다.
+	// 예상 결과: 각 command cancellation 시 StopAdmission이 이미 호출되고 close 뒤 dispose count 1, late snapshot render 0이다.
+	// 완료 조건: 새 async Stop/Reset 경로도 Start와 같은 admission/cancel/join/dispose owner를 사용한다.
+	[TestMethod]
+	[DataRow(ControllerCommandKind.Start)]
+	[DataRow(ControllerCommandKind.Stop)]
+	[DataRow(ControllerCommandKind.Reset)]
+	public async Task ClosingRequested_StopsAdmissionCancelsAndJoinsActiveCommandWithoutLateRender(
+		ControllerCommandKind commandKind)
 	{
 		var view = new FakeEquipmentView();
 		var controller = CreateController();
@@ -575,8 +650,15 @@ public sealed class EquipmentPresenterTests
 		var initialRenderCount = view.SnapshotRenderCount;
 		try
 		{
-			var requestTask = view.RaiseStartRequestedAsync();
+			var requestTask = commandKind switch
+			{
+				ControllerCommandKind.Start => view.RaiseStartRequestedAsync(),
+				ControllerCommandKind.Stop => view.RaiseStopRequestedAsync(),
+				ControllerCommandKind.Reset => view.RaiseResetRequestedAsync(),
+				_ => throw new ArgumentOutOfRangeException(nameof(commandKind))
+			};
 			await runtime.RequestStarted;
+			Assert.AreEqual(commandKind, runtime.LastRequestedKind);
 			await view.RaiseClosingRequestedAsync();
 			await requestTask;
 
@@ -631,6 +713,17 @@ public sealed class EquipmentPresenterTests
 			controller,
 			observationRuntime,
 			commandRuntime ?? new PassiveCommandRuntime());
+
+	private static ThermalController CreateRecoveryReadyController()
+	{
+		var controller = CreateController();
+		controller.Start();
+		controller.SetDoorOpen(true);
+		controller.SetDoorOpen(false);
+		controller.AcknowledgeAlarm();
+		Assert.AreEqual(ControllerState.Recovery, controller.Snapshot.State);
+		return controller;
+	}
 
 	private static ThermalController CreateController() => new(
 		new Recipe("Standard", 250, 300),
@@ -866,6 +959,12 @@ public sealed class EquipmentPresenterTests
 				null));
 		}
 
+		public Task<EquipmentCommandRequestResult> RequestStopAsync(CancellationToken cancellationToken) =>
+			RequestStartAsync(cancellationToken);
+
+		public Task<EquipmentCommandRequestResult> RequestResetAsync(CancellationToken cancellationToken) =>
+			RequestStartAsync(cancellationToken);
+
 		public void StopAdmission()
 		{
 		}
@@ -884,6 +983,7 @@ public sealed class EquipmentPresenterTests
 
 		public Task RequestStarted => _requestStarted.Task;
 		public int RequestCount { get; private set; }
+		public ControllerCommandKind? LastRequestedKind { get; private set; }
 		public int DisposeCount { get; private set; }
 		public bool StopAdmissionCalled { get; private set; }
 		public bool CancellationObservedAfterStopAdmission { get; private set; }
@@ -895,9 +995,21 @@ public sealed class EquipmentPresenterTests
 		public void SetDoorClosed(bool doorClosed) { }
 		public Task CycleAsync(TimeSpan elapsed, CancellationToken cancellationToken) => Task.CompletedTask;
 
-		public async Task<EquipmentCommandRequestResult> RequestStartAsync(CancellationToken cancellationToken)
+		public Task<EquipmentCommandRequestResult> RequestStartAsync(CancellationToken cancellationToken) =>
+			RequestCommandAsync(ControllerCommandKind.Start, cancellationToken);
+
+		public Task<EquipmentCommandRequestResult> RequestStopAsync(CancellationToken cancellationToken) =>
+			RequestCommandAsync(ControllerCommandKind.Stop, cancellationToken);
+
+		public Task<EquipmentCommandRequestResult> RequestResetAsync(CancellationToken cancellationToken) =>
+			RequestCommandAsync(ControllerCommandKind.Reset, cancellationToken);
+
+		private async Task<EquipmentCommandRequestResult> RequestCommandAsync(
+			ControllerCommandKind kind,
+			CancellationToken cancellationToken)
 		{
 			RequestCount++;
+			LastRequestedKind = kind;
 			_requestStarted.TrySetResult(true);
 			if (_cancellationCooperative)
 			{
@@ -988,9 +1100,9 @@ public sealed class EquipmentPresenterTests
 	private sealed class FakeEquipmentView : IEquipmentView
 	{
 		public event Func<Task>? StartRequested;
-		public event EventHandler? StopRequested;
+		public event Func<Task>? StopRequested;
 		public event EventHandler? AcknowledgeRequested;
-		public event EventHandler? ResetRequested;
+		public event Func<Task>? ResetRequested;
 		public event EventHandler? DoorToggleRequested;
 		public event EventHandler? ApplyTemperatureRequested;
 		public event EventHandler? PauseFeedbackRequested;
@@ -1017,9 +1129,22 @@ public sealed class EquipmentPresenterTests
 				await handler();
 			}
 		}
-		public void RaiseStopRequested() => StopRequested?.Invoke(this, EventArgs.Empty);
+		public Task RaiseStopRequestedAsync() => RaiseCommandRequestedAsync(StopRequested);
 		public void RaiseAcknowledgeRequested() => AcknowledgeRequested?.Invoke(this, EventArgs.Empty);
-		public void RaiseResetRequested() => ResetRequested?.Invoke(this, EventArgs.Empty);
+		public Task RaiseResetRequestedAsync() => RaiseCommandRequestedAsync(ResetRequested);
+
+		private static async Task RaiseCommandRequestedAsync(Func<Task>? requested)
+		{
+			if (requested is null)
+			{
+				return;
+			}
+
+			foreach (var handler in requested.GetInvocationList().Cast<Func<Task>>())
+			{
+				await handler();
+			}
+		}
 		public void RaiseDoorToggleRequested() => DoorToggleRequested?.Invoke(this, EventArgs.Empty);
 		public void RaiseApplyTemperatureRequested() => ApplyTemperatureRequested?.Invoke(this, EventArgs.Empty);
 		public void RaisePauseFeedbackRequested() => PauseFeedbackRequested?.Invoke(this, EventArgs.Empty);
