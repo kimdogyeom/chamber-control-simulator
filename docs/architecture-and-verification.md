@@ -25,6 +25,8 @@ P4-T3 Start-only exact fresh semantic ACK의 source anchor는 `7a874e8` (`feat: 
 
 P4-T4 monotonic lifecycle hold와 awaited Start/close ownership의 primary source anchor는 `0e2f6d2` (`feat: enforce monotonic command lifecycle holds`), late physical-write diagnostic repair는 `cdbca25` (`fix: preserve late write failure evidence`)다. injected Application `TimeProvider`, exact 3초 receipt/ACK epochs, explicit timeout state, noncooperative write lease transfer, stable terminal evidence, separate Presentation command/observation capabilities, awaited Start와 close task ownership을 포함한다. final Application 36/36, Simulation 16/16, Presentation 21/21, Debug 0 warnings/0 errors, full 128/128를 통과했다. initial source-review blockers와 mandatory cleaner late-fault blocker를 각각 repair했고 final cleaner, cumulative architect review, completion red-team이 모두 PASS했다.
 
+P4-T5 complete command-family source anchor는 `8127888` (`feat: complete P4 command family lifecycle`)다. Start/Stop/Reset named wrappers, one private Application lifecycle, success-only global-fence release, exact fresh per-kind ACK, Recovery-gated Reset, virtual Stop heater-off/Reset plant-neutral semantics, awaited three-command Presentation ownership을 포함한다. Debug 0 warnings/0 errors, Core 39/39, Application 49/49, Simulation 20/20, Presentation 26/26, Abstractions 19/19, full 153/153를 통과했다. initial QA가 지적한 per-kind stale/nonfresh/mismatched ACK, Core-ineligible, ACK-timeout, close-owner coverage를 source에서 보강했고 repaired cleaner PASS, architect CLEAR/APPROVE, QA red-team PASS를 받았다.
+
 ## 2. 범위와 안전 한계
 
 이 프로젝트는 C# WinForms 기반의 **가상 열처리 챔버 제어 시뮬레이터**다. 실제 챔버, 생산 PLC, 산업 통신, 온도 센서, 히터와 연결하지 않는다. 수치와 fault는 설명·테스트를 위한 illustrative simulation 값이다.
@@ -42,7 +44,7 @@ PC application의 Door/temperature/sensor interlock은 software policy demonstra
 | P3-T2 atomic observation mapping | Completed | `3a7398d`; focused Core 3/3, Application 3/3, Debug build 0 warnings/0 errors, full regression 65/65; manifest `1f65b461e9a08e08f0559b9018f2af27a6e600decf53114c756221283f42a090` PASS |
 | P3-T3 plant simulation 분리 | Completed | `b949e6c`; focused Tick contract 1/1, Debug build 0 warnings/0 errors, full regression 66/66; manifest `e7e94da9061b06428e9370c3fdbf1af28a28e2d5f451070d8de0e292039f540f` PASS |
 | P3-T4 WinForms observation composition | Completed | implementation `2e502fa`; current solution baseline `9c3ad95`; P3-only concrete input facade, async cycle/close teardown, 80/80, two independent reviews PASS; user-driven Session 1 input-to-render/close smoke completed |
-| P4 command lifecycle | P4-T1/P4-T2/P4-T3/P4-T4 Completed | reservation/admission `8f32ce7`; output/receipt `254c546`; Start exact ACK `7a874e8`; monotonic lifecycle/awaited UI ownership `0e2f6d2` + diagnostic repair `cdbca25`; P4-T4 Application 36/36 + Simulation 16/16 + Presentation 21/21, Debug 0/0, full 128/128, repaired frozen/final cleanup reviews PASS; P4-T5 not implemented |
+| P4 command lifecycle | P4-T1–P4-T5 Completed | reservation/admission `8f32ce7`; output/receipt `254c546`; Start exact ACK `7a874e8`; monotonic holds `0e2f6d2` + diagnostic repair `cdbca25`; complete Start/Stop/Reset family `8127888`; Debug 0/0, full 153/153, repaired cleaner/architect/QA reviews PASS |
 
 각 P3/P4 자동 검증 수치는 해당 source SHA와 tracked verification receipt에만 bound된다. later P4 slice, production release, real equipment, 또는 safety claim으로 확장하지 않는다.
 
@@ -52,7 +54,7 @@ PC application의 Door/temperature/sensor interlock은 software policy demonstra
 
 직접 `Form1 → EquipmentPresenter → ThermalController` wiring과 screenshots는 P3-T4 이전 P0 baseline이다. `docs/demo/SCENARIOS.md`는 그 historical procedure를 보존하며 current observation composition 또는 current UI screenshot evidence가 아니다.
 
-### 4.2 P3-T4 current WinForms observation composition
+### 4.2 P3-T4-derived current WinForms observation composition
 
 ```text
 Form1 / IEquipmentView
@@ -60,10 +62,10 @@ Form1 / IEquipmentView
   ├→ IEquipmentObservationRuntime → EquipmentCoordinator(IPlcObservationPort)
   └→ IEquipmentCommandRuntime → EquipmentCommandRuntime(IPlcOutputPort)
        → one shared P3/P4 semaphore + monotonic lifecycle state
-  → ThermalObservation / exact Start ACK / ControllerSnapshot rendering
+  → ThermalObservation / exact Start·Stop·Reset ACK / ControllerSnapshot rendering
 ```
 
-`Program.CreateObservationRuntime(...)`은 concrete `EquipmentObservationRuntime` owner와 narrow `VirtualPlcObservationInputControl`을 구성한다. owner는 observation-only `IEquipmentObservationRuntime`과 Start/admission-only `IEquipmentCommandRuntime`을 따로 구현하고 Presenter는 두 interface reference를 분리해 받는다. input facade에는 `Advance`, ACK suppression, transport fault API가 없다.
+`Program.CreateObservationRuntime(...)`은 concrete `EquipmentObservationRuntime` owner와 narrow `VirtualPlcObservationInputControl`을 구성한다. owner는 observation-only `IEquipmentObservationRuntime`과 named Start/Stop/Reset + admission-stop `IEquipmentCommandRuntime`을 따로 구현하고 Presenter는 두 interface reference를 분리해 받는다. input facade에는 `Advance`, ACK suppression, transport fault API가 없다.
 
 ### 4.3 P1/P2/P3 Application boundary
 
@@ -95,7 +97,7 @@ ThermalController.TryReserveCommand(...)
 
 Admission은 Core state/event transition이 아니며 PLC output capability도 아니다. P4-T1 source `8f32ce7`에서 `EquipmentCommandCoordinator`는 `ThermalController`만 받았다. current P4-T2 source는 별도 `IPlcOutputPort`를 추가하지만 reservation이 invalidated되거나 delivery가 indeterminate여도 held fence를 유지하고 duplicate Start/Stop/Reset을 queue·replace·release하지 않는다.
 
-P4-T1 reservation/admission, P4-T2 narrow output/transport receipt, P4-T3 Start-only exact fresh semantic ACK, P4-T4 monotonic lifecycle hold and awaited Start/close ownership: implemented. P4-T5 Stop/Reset completion: not implemented.
+P4-T1 reservation/admission, P4-T2 narrow output/transport receipt, P4-T3 exact fresh Start ACK, P4-T4 monotonic lifecycle holds, P4-T5 complete Start/Stop/Reset family and awaited Presentation ownership: implemented.
 
 ### 4.5 P4-T2 narrow output and transport-receipt boundary
 
@@ -130,7 +132,7 @@ EquipmentCommandRuntime.CycleAsync(elapsed, token)
 
 `ThermalController.TryCompleteAcknowledgedCommand(...)`는 `Application`과 `Core.Tests` friend assembly에만 보이는 internal seam이다. exact owned active reservation, invalidation, current eligibility를 Core가 확인한다. unsafe exact ACK는 `AcknowledgedButCoreIneligible`, higher/wrong ACK와 write ambiguity는 `ReconciliationRequired` terminal hold다. lower/stale ACK는 대기하고 어느 hold도 retry, replay, release, retroactive completion을 수행하지 않는다.
 
-Virtual Start는 transport write 때가 아니라 delayed semantic timestamp에 적용된다. `Advance`는 due event까지 plant를 integrate하고 semantic command를 적용한 뒤 remaining interval을 integrate하므로 one-step overshoot와 equivalent split step이 같다. suppression은 observed ACK만 숨긴다. T3 source는 Start-only/non-UI였고 T4 source가 deadline과 awaited UI Start/close containment를 추가했다. P4-T5 Stop/Reset completion은 없다.
+Virtual Start는 transport write 때가 아니라 delayed semantic timestamp에 적용된다. `Advance`는 due event까지 plant를 integrate하고 semantic command를 적용한 뒤 remaining interval을 integrate하므로 one-step overshoot와 equivalent split step이 같다. suppression은 observed ACK만 숨긴다. T3 source는 Start-only/non-UI였고 T4 source가 deadline과 awaited UI Start/close containment를 추가했다. Current P4-T5는 같은 lifecycle을 Stop/Reset과 awaited three-command Presentation path로 확장했다.
 
 ### 4.7 P4-T4 monotonic lifecycle and Presentation ownership boundary
 
@@ -150,7 +152,25 @@ Form closing
 
 `TimeProvider.GetTimestamp/GetElapsedTime`만 deadline authority다. receipt deadline은 output invocation, ACK deadline은 timely exact matching `Written`에서 시작하며 admission/Core/wall clock에 들어가지 않는다. timeout/cancellation 당시 physical write가 settle하지 않았으면 gate release를 continuation에 양도해 P3 read와 later write를 계속 막는다. eventual receipt, late exact ACK, reconnect observation은 evidence일 뿐 terminal state를 revive하지 않는다. late physical fault는 `TraceError`에 기록되고 settlement `finally`에서만 gate가 풀린다.
 
-Presentation capability는 `IEquipmentObservationRuntime`과 `IEquipmentCommandRuntime`으로 분리된다. Start event만 awaitable command path를 사용한다. Stop/Reset UI handler는 legacy direct Core routing을 유지하며 P4 command lifecycle completion이 아니다.
+Presentation capability는 `IEquipmentObservationRuntime`과 `IEquipmentCommandRuntime`으로 분리된다. P4-T5에서 Start/Stop/Reset event 모두 one awaitable command-owner path를 사용하며 legacy direct Core Stop/Reset routing은 제거됐다. Acknowledge와 local simulation input은 command output authority가 아니다.
+
+### 4.8 P4-T5 complete command-family boundary
+
+```text
+named Start / Stop / Reset request
+  -> one private RequestCommandAsync(kind)
+  -> one coordinator pending reservation + one output write
+  -> exact matching Written (transport evidence only)
+  -> strictly later exact ACK
+  -> opaque Core revalidation
+  -> success-only global-fence release
+```
+
+Stop은 priority/preemption 예외가 아니며 pending/timeout/reconciliation/Core-ineligible command가 있으면 세 kind 모두 새 ID/write 없이 거절된다. successful completion만 coordinator reservation과 runtime active fields를 지우고 `Completed` terminal evidence는 유지한다.
+
+Virtual semantic time에서 Start는 heater-on, Stop은 heater-off를 적용한 뒤 optional ACK publication을 처리한다. 따라서 suppressed Stop ACK는 no-effect proof가 아니다. Reset은 command/ACK만 모델링하며 plant, alarm, safety, reconciliation state를 지우는 shortcut이 없다.
+
+Recovery-ready 이전 Reset은 Core reservation 단계에서 거절돼 write가 없다. stale/lower/same-sequence ACK는 completion authority가 아니어서 대기를 유지한다. dispatch 뒤 eligibility invalidation, higher/mismatched reconciliation, exact 3초 ACK timeout, timeout 뒤 delayed exact ACK는 fail-closed terminal hold다.
 
 ## 5. 구성 요소별 책임
 
@@ -159,11 +179,11 @@ Presentation capability는 `IEquipmentObservationRuntime`과 `IEquipmentCommandR
 | `Form1` | UI event 발생과 snapshot/event log rendering | Alarm, Recovery, Reset 판단 / PLC I/O |
 | `IEquipmentView` | View input/output contract | Core 또는 communication policy 소유 |
 | `IEquipmentObservationRuntime` | observation input/cycle/disposal capability | output command request/admission capability |
-| `IEquipmentCommandRuntime` | Start request와 admission stop capability | observation input/cycle, disposal, PLC protocol policy |
-| `EquipmentPresenter` | async observation/Start 호출, command/cycle no-overlap ownership, close admission-stop/cancel/join/one-dispose/no-late-render | PLC protocol/ACK/deadline policy 판정 |
+| `IEquipmentCommandRuntime` | named Start/Stop/Reset request와 admission stop capability | observation input/cycle, disposal, PLC protocol policy |
+| `EquipmentPresenter` | async observation/Start/Stop/Reset 호출, command/cycle no-overlap ownership, close admission-stop/cancel/join/one-dispose/no-late-render | PLC protocol/ACK/deadline policy 판정 |
 | `EquipmentCoordinator` | `IPlcObservationPort` connect/read/freshness policy와 PLC input → Core mapping | WinForms Control 접근, output write, semantic ACK completion 판단 |
-| `EquipmentCommandCoordinator` | opaque Core reservation, one pending command-ID, narrow output one-shot dispatch, transport receipt classification, internal Start completion request | input observation, timeout recovery, retry/replay, reservation release |
-| `EquipmentCommandRuntime` | Start-only baseline/admission/dispatch, shared P3/P4 serialization, exact ACK, monotonic receipt/ACK deadlines, stable terminal hold | Stop/Reset completion, automatic recovery, retry/replay/release |
+| `EquipmentCommandCoordinator` | opaque Core reservation, one pending command-ID, narrow output one-shot dispatch, transport receipt classification, internal command-family completion request | input observation, timeout recovery, retry/replay, reservation release |
+| `EquipmentCommandRuntime` | Start/Stop/Reset baseline/admission/dispatch, shared P3/P4 serialization, exact fresh ACK, monotonic receipt/ACK deadlines, stable terminal hold | automatic recovery, retry/replay/release |
 | `ThermalController` | phase, interlock, pending alarm, Recovery/Reset, recipe, event history | socket, Modbus address, async I/O, system clock 직접 접근 |
 | `IPlcObservationPort` | connect/disconnect/read observation contract | output write, UI/Core dependency, simulation fault control |
 | `IPlcOutputPort` | typed one-shot output write only | input read, connection/disposal, UI/Core dependency, simulation controls |
@@ -214,7 +234,7 @@ PlcWriteReceipt.TransportStatus == Written
 ≠ semantic ACK
 ```
 
-P4-T2 coordinator는 `AcknowledgedCommandId`를 읽거나 command를 complete하지 않는다. P4-T4 runtime도 exact matching `Written`을 semantic success로 취급하지 않으며 receipt/ACK 각각의 3초 monotonic epoch를 분리한다. strictly later accepted observation의 exact pending ACK만 completion candidate다. P3 `EquipmentCoordinator` 자체는 계속 `IPlcObservationPort` only이고 `WriteOutputsAsync`를 호출하지 않는다.
+P4-T2 coordinator는 `AcknowledgedCommandId`를 읽거나 command를 complete하지 않는다. P4-T5 runtime도 exact matching `Written`을 semantic success로 취급하지 않으며 receipt/ACK 각각의 3초 monotonic epoch를 분리한다. strictly later accepted observation의 exact pending ACK와 Core reservation revalidation success만 Start/Stop/Reset completion 및 global-fence release authority다. P3 `EquipmentCoordinator` 자체는 계속 `IPlcObservationPort` only이고 `WriteOutputsAsync`를 호출하지 않는다.
 
 ## 7. P3 Coordinator cycle의 현재 범위
 
@@ -247,7 +267,7 @@ P3-T2 tests cover DoorOpen interlock, OverTemperature, SensorTimeout, fresh inpu
 
 ### P3-T4 — source committed WinForms observation cycle
 
-P3-T4 (`2e502fa`)는 Form timer event를 `IEquipmentObservationRuntime.CycleAsync(...)`로 전환했다. P4-T4 (`0e2f6d2`)에서도 observation interface는 output authority 없이 유지되고, Presenter가 별도 narrow command interface로 awaitable Start를 소유한다. in-flight cycle no-overlap과 elapsed carry는 유지되며 closing은 command/cycle을 모두 cancel/join한 뒤 owner를 한 번 dispose하고 late render를 막는다.
+P3-T4 (`2e502fa`)는 Form timer event를 `IEquipmentObservationRuntime.CycleAsync(...)`로 전환했다. P4-T5 (`8127888`)에서도 observation interface는 output authority 없이 유지되고, Presenter가 별도 narrow command interface로 awaitable Start/Stop/Reset을 one owner로 소유한다. in-flight cycle no-overlap과 elapsed carry는 유지되며 closing은 command/cycle을 모두 cancel/join한 뒤 owner를 한 번 dispose하고 late render를 막는다.
 
 Observation cycle 자체는 output write나 `VirtualPlcSimulationControl.Advance(...)`를 호출하지 않는다. Program의 one concrete owner가 shared command runtime과 P3-only `VirtualPlcObservationInputControl`을 구성하고, reflection/actual-object regression이 observation/command/simulation capability 경계를 고정한다.
 
@@ -294,7 +314,7 @@ Active phase
 
 ### P3 source evidence
 
-P1/P2/P3 source/test provenance는 각 local commit과 receipt에 남아 있다. P4-T1은 [`p4-t1-command-reservation-and-id-admission.md`](verification/p4-t1-command-reservation-and-id-admission.md)에 `8f32ce7`, P4-T2는 [`p4-t2-output-port-and-transport-receipt.md`](verification/p4-t2-output-port-and-transport-receipt.md)에 `254c546`, P4-T3는 [`p4-t3-exact-fresh-start-semantic-ack.md`](verification/p4-t3-exact-fresh-start-semantic-ack.md)에 `7a874e8`, P4-T4는 [`p4-t4-monotonic-lifecycle-holds.md`](verification/p4-t4-monotonic-lifecycle-holds.md)에 primary `0e2f6d2`, diagnostic repair `cdbca25`, exact primary 12-path + repair 2-path scope, 36/36 + 16/16 + 21/21, full 128/128, repaired frozen/cleaner/cumulative/red-team evidence를 기록한다.
+P1/P2/P3 source/test provenance는 각 local commit과 receipt에 남아 있다. P4-T1은 [`p4-t1-command-reservation-and-id-admission.md`](verification/p4-t1-command-reservation-and-id-admission.md)에 `8f32ce7`, P4-T2는 [`p4-t2-output-port-and-transport-receipt.md`](verification/p4-t2-output-port-and-transport-receipt.md)에 `254c546`, P4-T3는 [`p4-t3-exact-fresh-start-semantic-ack.md`](verification/p4-t3-exact-fresh-start-semantic-ack.md)에 `7a874e8`, P4-T4는 [`p4-t4-monotonic-lifecycle-holds.md`](verification/p4-t4-monotonic-lifecycle-holds.md)에 `0e2f6d2` + `cdbca25`, P4-T5는 [`p4-t5-command-family-completeness.md`](verification/p4-t5-command-family-completeness.md)에 `8127888`, exact 13-path scope, 39/39 + 49/49 + 20/20 + 26/26 + 19/19, full 153/153, repaired cleaner/architect/QA evidence를 기록한다.
 
 ### 재현 명령
 
@@ -304,4 +324,4 @@ dotnet build ChamberControlSimulator.slnx --configuration Debug --no-restore
 dotnet test ChamberControlSimulator.slnx --configuration Debug --no-build --no-restore
 ```
 
-P3-T2 result는 `3a7398d`, P3-T3는 `b949e6c`, P3-T4는 `2e502fa`, P4-T1은 `8f32ce7`, P4-T2는 `254c546`, P4-T3는 `7a874e8`, P4-T4는 primary `0e2f6d2`와 diagnostic repair `cdbca25` source commit 및 tracked verification receipt를 기준으로 재현한다.
+P3-T2 result는 `3a7398d`, P3-T3는 `b949e6c`, P3-T4는 `2e502fa`, P4-T1은 `8f32ce7`, P4-T2는 `254c546`, P4-T3는 `7a874e8`, P4-T4는 `0e2f6d2` + `cdbca25`, P4-T5는 `8127888` source commit 및 각각의 tracked verification receipt를 기준으로 재현한다.
