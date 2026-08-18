@@ -6,7 +6,7 @@ WinForms 기반 가상 열처리 챔버 제어 시뮬레이터입니다. UI, Cor
 
 ## 구현 상태와 증거 상태
 
-아래 표는 `2026-08-17` Windows authoritative worktree를 기준으로 한다. `Completed`는 local commit과 검증 근거가 있는 상태이고, `Source committed`는 implementation SHA와 automated evidence가 local commit에 고정됐지만 post-fix UI smoke 같은 별도 evidence가 남아 있을 수 있음을 뜻한다.
+아래 표는 `2026-08-18` Windows authoritative worktree를 기준으로 한다. `Completed`는 local commit과 검증 근거가 있는 상태이고, `Source committed — documentation checkpoint pending`는 implementation SHA와 automated evidence가 local commit에 고정됐지만 tracked documentation checkpoint가 아직 남은 상태를 뜻한다.
 
 | 범위 | evidence state | 근거 |
 | --- | --- | --- |
@@ -17,7 +17,7 @@ WinForms 기반 가상 열처리 챔버 제어 시뮬레이터입니다. UI, Cor
 | P3-T2 atomic `ThermalObservation` mapping | Completed | `3a7398d`; focused Core 3/3, Application 3/3, Debug build 0 warnings/0 errors, full regression 65/65, Windows-byte source review manifest `1f65b461e9a08e08f0559b9018f2af27a6e600decf53114c756221283f42a090` PASS |
 | P3-T3 Core plant simulation 분리 | Completed | `b949e6c`; focused Tick contract 1/1, Debug build 0 warnings/0 errors, full regression 66/66, Windows-byte source review manifest `e7e94da9061b06428e9370c3fdbf1af28a28e2d5f451070d8de0e292039f540f` PASS |
 | P3-T4 WinForms observation composition | Completed | implementation `2e502fa`; current solution baseline `9c3ad95`; P3-only concrete input facade, async non-overlapping observation cycle, close teardown, full regression 80/80, independent source/artifact reviews PASS; user-driven Session 1 smoke에서 observed input `20 → 30 → Apply` 후 `30.00 °C` rendering, Idle 유지, 오류 없음이 보고되었고 UI 종료 후 process absence를 확인 |
-| P4 command ID / semantic ACK lifecycle | Planned | Application output write, matching ACK, timeout, duplicate prevention은 아직 구현하지 않음 |
+| P4 command lifecycle | P4-T1 source committed — documentation checkpoint pending | reservation/admission source `8f32ce7`; focused Core 7/7, Application 5/5, Debug 0 warnings/0 errors, full regression 92/92, frozen Windows-byte review PASS. P4-T2 output receipt, P4-T3 semantic ACK, P4-T4 timeout/reconciliation, P4-T5 Reset/Recovery lifecycle은 구현하지 않음 |
 
 ## 현재 구현된 책임 경계
 
@@ -49,13 +49,30 @@ Form1 / IEquipmentView
   → ControllerSnapshot / Form1 rendering
 ```
 
-- `EquipmentCoordinator`는 read-only `IPlcObservationPort`만 선언적으로 받는다. `IPlcClient`는 그 observation contract를 확장해 P4용 `WriteOutputsAsync`를 가진 compatibility port다.
+- `EquipmentCoordinator`는 read-only `IPlcObservationPort`만 선언적으로 받는다. `IPlcClient`는 그 observation contract를 확장해 future output write를 가진 compatibility port다. P4-T1 `EquipmentCommandCoordinator`는 `ThermalController`만 받으며 PLC port를 주입받지 않는다.
 - `Program`은 P3 setter path에 별도 concrete `VirtualPlcObservationInputControl`을 주입한다. 이 facade에는 temperature/sensor/door setter만 있고 `Advance`, ACK suppression, transport fault control이 없다.
 - `VirtualPlcSimulationControl`은 explicit virtual time, delayed/suppressed acknowledgement, transport fault를 보유하는 P4-oriented simulation facade로 남는다. P3 nominal observation cycle은 이를 받거나 `Advance(...)`를 호출하지 않는다.
 - P3-T1/T2의 connect/read/freshness와 atomic `ThermalObservation` mapping, P3-T3의 observed-input-only Core policy는 이 composition에서 재사용된다.
 - timer cycle은 async/non-overlapping이며, close는 cancellation → active-cycle join → one-time runtime disposal을 기다린다.
 
-P4 전에는 UI Start/Stop/Reset을 PLC command write, transport receipt, matching semantic ACK, timeout, duplicate prevention으로 연결했다고 주장하지 않는다.
+P4-T1은 UI Start/Stop/Reset을 PLC command write, transport receipt, matching semantic ACK, timeout, duplicate prevention으로 연결하지 않는다.
+
+### P4-T1 command reservation and ID admission — source committed
+
+```text
+ThermalController.TryReserveCommand(...)
+  → opaque ControllerCommandReservation
+  → EquipmentCommandCoordinator.TryAdmit(...)
+  → positive process-local monotonic CommandId
+  → one retained pending admission
+```
+
+- Core reservation은 PLC-neutral이며 admission 시 Core state/event를 변경하지 않는다.
+- Application은 한 pending command만 유지한다. duplicate request와 invalidated reservation은 fence를 해제하거나 교체하지 않는다.
+- 이 slice에는 output port write, transport receipt 처리, semantic ACK completion, timeout/reconnect/reconciliation, Presenter/Form routing이 없다.
+- source anchor와 exact validation/review 범위는 [`docs/verification/p4-t1-command-reservation-and-id-admission.md`](docs/verification/p4-t1-command-reservation-and-id-admission.md)에 기록한다.
+
+P4-T1 reservation/admission: implemented. P4-T2 output receipt, P4-T3 semantic ACK, P4-T4 timeout/reconciliation, P4-T5 Reset/Recovery lifecycle: not implemented.
 
 ## 실제 PLC port 계약
 
@@ -100,8 +117,8 @@ P3-T4 source `2e502fa`는 Form/Presenter를 PLC observation runtime에 연결했
 
 - `docs/verification/baseline-v0.1.md`와 `docs/verification/invariants.md`는 P0 baseline에 묶인 tracked evidence다.
 - `docs/demo/images/`와 `docs/demo/SCENARIOS.md`의 캡처는 P0 direct Presenter/Core runtime evidence다.
-- P1/P2/P3-T1의 source/test/review provenance는 각 local commit과 independent review bundle에 남아 있다. P3-T2 source verification은 [`docs/verification/p3-t2-atomic-observation.md`](docs/verification/p3-t2-atomic-observation.md)에 `3a7398d` SHA와 함께 기록한다. P3-T3 source verification은 [`docs/verification/p3-t3-core-plant-separation.md`](docs/verification/p3-t3-core-plant-separation.md)에 `b949e6c` SHA와 함께 기록한다. P3-T4 source verification은 [`docs/verification/p3-t4-winforms-observation-composition.md`](docs/verification/p3-t4-winforms-observation-composition.md)에 `2e502fa` SHA와 함께 기록한다.
-- P3-T2의 65/65는 `3a7398d` source commit에, P3-T3의 66/66은 `b949e6c` source commit에, P3-T4의 80/80은 `2e502fa` implementation source commit과 current solution baseline `9c3ad95`에 각각 bound된 verification result다. P3-T4 Session 1 manual smoke는 user-driven input-to-render/close composition evidence일 뿐이며, 어느 결과도 P4 completion, real Modbus TCP, physical PLC, 또는 hardware safety를 뜻하지 않는다.
+- P1/P2/P3-T1의 source/test/review provenance는 각 local commit과 independent review bundle에 남아 있다. P3-T2 source verification은 [`docs/verification/p3-t2-atomic-observation.md`](docs/verification/p3-t2-atomic-observation.md)에 `3a7398d` SHA와 함께 기록한다. P3-T3 source verification은 [`docs/verification/p3-t3-core-plant-separation.md`](docs/verification/p3-t3-core-plant-separation.md)에 `b949e6c` SHA와 함께 기록한다. P3-T4 source verification은 [`docs/verification/p3-t4-winforms-observation-composition.md`](docs/verification/p3-t4-winforms-observation-composition.md)에 `2e502fa` SHA와 함께 기록한다. P4-T1 source verification은 [`docs/verification/p4-t1-command-reservation-and-id-admission.md`](docs/verification/p4-t1-command-reservation-and-id-admission.md)에 `8f32ce7` SHA와 함께 기록한다.
+- P3-T2의 65/65는 `3a7398d`에, P3-T3의 66/66은 `b949e6c`에, P3-T4의 80/80은 `2e502fa` implementation source와 current solution baseline `9c3ad95`에 각각 bound된다. P4-T1의 focused 7/7 + 5/5와 full 92/92는 `8f32ce7` source에만 bound된다. P3-T4 Session 1 manual smoke는 user-driven input-to-render/close composition evidence일 뿐이며, 어느 결과도 P4-T2~T5 completion, real Modbus TCP, physical PLC, 또는 hardware safety를 뜻하지 않는다.
 
 ## 재현 명령
 
@@ -118,4 +135,5 @@ dotnet test ChamberControlSimulator.slnx --configuration Debug --no-build --no-r
 - [`docs/architecture-and-verification.md`](docs/architecture-and-verification.md): 구현됨 / 후보 / 계획됨을 분리한 책임 경계와 검증 기록
 - [`docs/demo/SCENARIOS.md`](docs/demo/SCENARIOS.md): P0 historical UI scenario와 screenshot 범위
 - [`docs/verification/p3-t4-winforms-observation-composition.md`](docs/verification/p3-t4-winforms-observation-composition.md): P3-T4 source SHA, automated evidence, and explicit nonclaims
+- [`docs/verification/p4-t1-command-reservation-and-id-admission.md`](docs/verification/p4-t1-command-reservation-and-id-admission.md): P4-T1 source SHA, exact reservation/admission evidence, and P4-T2~T5 nonclaims
 - local ignored `docs/roadmap/STATUS.md`: 다음 작업 세션용 current progress tracker. tracked verification receipt를 대체하지 않는다.
