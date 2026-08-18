@@ -18,6 +18,7 @@ public sealed class ThermalController
 	private AlarmKind? _activeAlarm;
 	private bool _alarmAcknowledged;
 	private bool _recoveryReady;
+	private ControllerCommandReservation? _commandReservation;
 	private readonly IReadOnlyList<EventLogEntry> _eventHistory;
 
 	public ThermalController(Recipe recipe, SimulationSettings settings)
@@ -57,17 +58,26 @@ public sealed class ThermalController
 	public IReadOnlyList<Recipe> Recipes => _recipes;
 	public IReadOnlyList<EventLogEntry> EventHistory => _eventHistory;
 
+	public ControllerCommandReservation? TryReserveCommand(ControllerCommandKind kind)
+	{
+		EnsureCommandKindDefined(kind);
+		if (_commandReservation is not null || !IsCommandEligible(kind))
+		{
+			return null;
+		}
+
+		_commandReservation = new ControllerCommandReservation(kind);
+		return _commandReservation;
+	}
+
 	public void Start()
 	{
-		if (_state != ControllerState.Idle || _doorOpen || _currentTemperature >= _recipe.SafetyTemperature) return;
-		AddEvent("Start");
-		TransitionTo(ControllerState.Precheck);
-		TransitionTo(ControllerState.Heating);
+		TryApplyImmediateCommand(ControllerCommandKind.Start);
 	}
 
 	public bool SelectRecipe(string recipeName)
 	{
-		if (_state != ControllerState.Idle || string.IsNullOrWhiteSpace(recipeName))
+		if (_state != ControllerState.Idle || _commandReservation is not null || string.IsNullOrWhiteSpace(recipeName))
 		{
 			return false;
 		}
@@ -92,6 +102,7 @@ public sealed class ThermalController
 			throw new ArgumentOutOfRangeException(nameof(temperature));
 
 		_currentTemperature = temperature;
+		MarkReservationInvalidIfIneligible();
 		if (IsSafetyMonitored() && _currentTemperature >= _recipe.SafetyTemperature)
 		{
 			RaiseAlarm(AlarmKind.OverTemperature);
@@ -115,6 +126,7 @@ public sealed class ThermalController
 		_elapsed += elapsed;
 		_doorOpen = observation.IsDoorOpen;
 		_currentTemperature = observation.CurrentTemperature;
+		MarkReservationInvalidIfIneligible();
 
 		if (!observation.SensorHealthy && !_feedbackPaused)
 		{
@@ -167,20 +179,12 @@ public sealed class ThermalController
 
 	public void Stop()
 	{
-		if (_state is ControllerState.Idle or ControllerState.Alarm or ControllerState.Recovery) return;
-		_state = ControllerState.Idle;
-		_activeAlarm = null;
-		_pendingAlarms.Clear();
-		_alarmAcknowledged = false;
-		_recoveryReady = false;
-		_feedbackPaused = false;
-		_feedbackPausedElapsed = TimeSpan.Zero;
-		AddEvent("Stop");
-		PublishSnapshot();
+		TryApplyImmediateCommand(ControllerCommandKind.Stop);
 	}
 	public void SetDoorOpen(bool isOpen)
 	{
 		_doorOpen = isOpen;
+		MarkReservationInvalidIfIneligible();
 		if (isOpen && IsSafetyMonitored())
 		{
 			RaiseAlarm(AlarmKind.DoorOpen);
@@ -216,15 +220,7 @@ public sealed class ThermalController
 
 	public void Reset()
 	{
-		if (_state != ControllerState.Recovery || !_recoveryReady) return;
-		_pendingAlarms.Clear();
-		_activeAlarm = null;
-		_alarmAcknowledged = false;
-		_recoveryReady = false;
-		_feedbackPausedElapsed = TimeSpan.Zero;
-		_state = ControllerState.Idle;
-		AddEvent("Reset");
-		PublishSnapshot();
+		TryApplyImmediateCommand(ControllerCommandKind.Reset);
 	}
 
 	public void Tick(TimeSpan elapsed)
@@ -251,6 +247,77 @@ public sealed class ThermalController
 		PublishSnapshot();
 	}
 
+	private bool TryApplyImmediateCommand(ControllerCommandKind kind)
+	{
+		EnsureCommandKindDefined(kind);
+		if (_commandReservation is not null || !IsCommandEligible(kind))
+		{
+			return false;
+		}
+
+		ApplyCommand(kind);
+		return true;
+	}
+
+	private bool IsCommandEligible(ControllerCommandKind kind) => kind switch
+	{
+		ControllerCommandKind.Start => _state == ControllerState.Idle && !_doorOpen && _currentTemperature < _recipe.SafetyTemperature,
+		ControllerCommandKind.Stop => _state is not ControllerState.Idle and not ControllerState.Alarm and not ControllerState.Recovery,
+		ControllerCommandKind.Reset => _state == ControllerState.Recovery && _recoveryReady,
+		_ => false
+	};
+
+	private void ApplyCommand(ControllerCommandKind kind)
+	{
+		switch (kind)
+		{
+			case ControllerCommandKind.Start:
+				AddEvent("Start");
+				TransitionTo(ControllerState.Precheck);
+				TransitionTo(ControllerState.Heating);
+				return;
+			case ControllerCommandKind.Stop:
+				_state = ControllerState.Idle;
+				_activeAlarm = null;
+				_pendingAlarms.Clear();
+				_alarmAcknowledged = false;
+				_recoveryReady = false;
+				_feedbackPaused = false;
+				_feedbackPausedElapsed = TimeSpan.Zero;
+				AddEvent("Stop");
+				PublishSnapshot();
+				return;
+			case ControllerCommandKind.Reset:
+				_pendingAlarms.Clear();
+				_activeAlarm = null;
+				_alarmAcknowledged = false;
+				_recoveryReady = false;
+				_feedbackPausedElapsed = TimeSpan.Zero;
+				_state = ControllerState.Idle;
+				AddEvent("Reset");
+				PublishSnapshot();
+				return;
+			default:
+				throw new ArgumentOutOfRangeException(nameof(kind));
+		}
+	}
+
+	private void MarkReservationInvalidIfIneligible()
+	{
+		if (_commandReservation is not null && !_commandReservation.IsInvalidated && !IsCommandEligible(_commandReservation.Kind))
+		{
+			_commandReservation.Invalidate();
+		}
+	}
+
+	private static void EnsureCommandKindDefined(ControllerCommandKind kind)
+	{
+		if (!Enum.IsDefined(kind))
+		{
+			throw new ArgumentOutOfRangeException(nameof(kind));
+		}
+	}
+
 	private bool IsActivePhase() => _state is ControllerState.Precheck or ControllerState.Heating or ControllerState.Holding or ControllerState.Cooling;
 
 	private void RaiseAlarm(AlarmKind alarm)
@@ -267,6 +334,7 @@ public sealed class ThermalController
 		_alarmAcknowledged = false;
 		_recoveryReady = false;
 		_state = ControllerState.Alarm;
+		MarkReservationInvalidIfIneligible();
 		AddEvent(isNewAlarm ? $"Alarm: {alarm}" : $"Alarm reasserted: {alarm}", alarm);
 		PublishSnapshot();
 	}

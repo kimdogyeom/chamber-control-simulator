@@ -12,6 +12,32 @@ public enum ControllerState
 	Recovery
 }
 
+public enum ControllerCommandKind
+{
+	Start,
+	Stop,
+	Reset
+}
+
+public sealed class ControllerCommandReservation
+{
+	internal ControllerCommandReservation(ControllerCommandKind kind)
+	{
+		if (!Enum.IsDefined(kind))
+		{
+			throw new ArgumentOutOfRangeException(nameof(kind));
+		}
+
+		Kind = kind;
+	}
+
+	internal ControllerCommandKind Kind { get; }
+
+	internal bool IsInvalidated { get; private set; }
+
+	internal void Invalidate() => IsInvalidated = true;
+}
+
 public enum AlarmKind
 {
 	DoorOpen,

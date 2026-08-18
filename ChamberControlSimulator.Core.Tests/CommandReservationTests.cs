@@ -1,0 +1,128 @@
+using ChamberControlSimulator.Core;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
+using System.Reflection;
+
+namespace ChamberControlSimulator.Core.Tests;
+
+[TestClass]
+public sealed class CommandReservationTests
+{
+	// 목적: eligible Start 요청이 opaque Core reservation만 만들고 semantic ACK route가 아직 없는 T1에서 상태나 event를 바꾸지 않는지 검증한다.
+	// 예상 결과: Start reservation은 반환되며 Snapshot은 Idle, EventHistory는 비어 있다.
+	// 완료 조건: reservation 자체가 Start transition이나 PLC-facing command를 만들지 않은 채 test가 통과한다.
+	[TestMethod]
+	public void TryReserveCommand_Start_LeavesControllerIdleWithoutStateTransition()
+	{
+		var controller = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
+
+		var reservation = controller.TryReserveCommand(ControllerCommandKind.Start);
+
+		Assert.IsNotNull(reservation);
+		Assert.AreEqual(ControllerState.Idle, controller.Snapshot.State);
+		Assert.IsEmpty(controller.EventHistory);
+	}
+
+	// 목적: still-eligible reservation이 남아 있을 때 duplicate reservation도 새 authority나 state/event 변화를 만들지 않는지 검증한다.
+	// 예상 결과: 두 번째 Start reservation은 null이고 controller는 Idle 및 empty event history를 유지한다.
+	// 완료 조건: unsafe invalidation이 없어도 one-shot Core fence가 replacement를 거절함을 보장한다.
+	[TestMethod]
+	public void TryReserveCommand_WhenExistingReservationRemainsEligible_RejectsDuplicateWithoutChangingController()
+	{
+		var controller = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
+		Assert.IsNotNull(controller.TryReserveCommand(ControllerCommandKind.Start));
+
+		var duplicateReservation = controller.TryReserveCommand(ControllerCommandKind.Start);
+
+		Assert.IsNull(duplicateReservation);
+		Assert.AreEqual(ControllerState.Idle, controller.Snapshot.State);
+		Assert.IsEmpty(controller.EventHistory);
+	}
+
+	// 목적: active controller의 Stop intent도 예약만으로는 현재 phase나 event를 바꾸지 않는지 검증한다.
+	// 예상 결과: Stop reservation 직후 Heating이 유지되고 Stop event는 추가되지 않는다.
+	// 완료 조건: Start 외 command도 T1에서 semantic application 없이 transition하지 않는다.
+	[TestMethod]
+	public void TryReserveCommand_Stop_LeavesActiveControllerUnchanged()
+	{
+		var controller = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
+		controller.Start();
+		var eventCountBeforeReservation = controller.EventHistory.Count;
+
+		var reservation = controller.TryReserveCommand(ControllerCommandKind.Stop);
+
+		Assert.IsNotNull(reservation);
+		Assert.AreEqual(ControllerState.Heating, controller.Snapshot.State);
+		Assert.HasCount(eventCountBeforeReservation, controller.EventHistory);
+	}
+
+	// 목적: Recovery-ready Reset intent도 예약만으로는 Idle로 전환하지 않는지 검증한다.
+	// 예상 결과: Reset reservation 직후 Recovery가 유지되고 Reset event는 추가되지 않는다.
+	// 완료 조건: Reset이 T1에서 command uncertainty 또는 semantic ACK boundary를 우회하지 않는다.
+	[TestMethod]
+	public void TryReserveCommand_Reset_LeavesRecoveryControllerUnchanged()
+	{
+		var controller = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
+		controller.Start();
+		controller.SetDoorOpen(true);
+		controller.SetDoorOpen(false);
+		controller.AcknowledgeAlarm();
+		Assert.AreEqual(ControllerState.Recovery, controller.Snapshot.State);
+		var eventCountBeforeReservation = controller.EventHistory.Count;
+
+		var reservation = controller.TryReserveCommand(ControllerCommandKind.Reset);
+
+		Assert.IsNotNull(reservation);
+		Assert.AreEqual(ControllerState.Recovery, controller.Snapshot.State);
+		Assert.HasCount(eventCountBeforeReservation, controller.EventHistory);
+	}
+
+	// 목적: unsafe intervening observation이 reservation을 release하지 않고 fail-closed pending fence로 남기는지 검증한다.
+	// 예상 결과: door-open 후 다시 닫아도 replacement reservation과 legacy Start 모두 허용되지 않는다.
+	// 완료 조건: unsafe interval 뒤 late ACK/retry가 새 command ID나 Core Start를 만들 수 있는 T1 loophole가 없다.
+	[TestMethod]
+	public void TryReserveCommand_AfterUnsafeInterveningObservation_RemainsPendingAndBlocksReplacement()
+	{
+		var controller = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
+		var reservation = controller.TryReserveCommand(ControllerCommandKind.Start);
+		Assert.IsNotNull(reservation);
+
+		controller.SetDoorOpen(true);
+		controller.SetDoorOpen(false);
+		var replacementReservation = controller.TryReserveCommand(ControllerCommandKind.Start);
+		controller.Start();
+
+		Assert.IsNull(replacementReservation);
+		Assert.AreEqual(ControllerState.Idle, controller.Snapshot.State);
+		Assert.IsEmpty(controller.EventHistory);
+	}
+
+	// 목적: outstanding reservation이 있을 때 legacy Start seam이 semantic ACK 이전 transition을 bypass하지 않는지 검증한다.
+	// 예상 결과: direct Start 호출 뒤에도 Idle과 empty event history가 유지된다.
+	// 완료 조건: Presenter migration 전 compatibility method가 T1 reservation authority를 침범하지 않는다.
+	[TestMethod]
+	public void Start_WhenReservationIsOutstanding_DoesNotBypassReservationFence()
+	{
+		var controller = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
+		Assert.IsNotNull(controller.TryReserveCommand(ControllerCommandKind.Start));
+
+		controller.Start();
+
+		Assert.AreEqual(ControllerState.Idle, controller.Snapshot.State);
+		Assert.IsEmpty(controller.EventHistory);
+	}
+
+	// 목적: reservation object와 ThermalController public surface가 T1에서 commit 또는 release authority를 노출하지 않는지 검증한다.
+	// 예상 결과: reservation에는 public constructor/property가 없고 acknowledged apply/invalidate public method도 없다.
+	// 완료 조건: semantic ACK/reconciliation implementation 전에는 caller가 Core state transition이나 reservation release를 직접 호출할 수 없다.
+	[TestMethod]
+	public void ReservationContract_ExposesNoPublicCommitOrReleaseAuthority()
+	{
+		var reservationType = typeof(ControllerCommandReservation);
+		var controllerType = typeof(ThermalController);
+
+		Assert.IsEmpty(reservationType.GetConstructors(BindingFlags.Instance | BindingFlags.Public));
+		Assert.IsEmpty(reservationType.GetProperties(BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly));
+		Assert.IsNull(controllerType.GetMethod("TryApplyAcknowledgedReservation", BindingFlags.Instance | BindingFlags.Public));
+		Assert.IsNull(controllerType.GetMethod("InvalidateCommandReservation", BindingFlags.Instance | BindingFlags.Public));
+	}
+}
