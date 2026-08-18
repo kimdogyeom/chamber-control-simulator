@@ -37,27 +37,64 @@ public sealed class VirtualPlcClientTests
 		Assert.AreEqual(7L, acknowledgementAfterDelay);
 	}
 
-	// 목적: transport Start write가 virtual heater를 켜고 명시적 virtual time에서만 온도를 바꾸는지 검증한다.
-	// 예상 결과: write 직후 온도는 그대로이고 Advance 1초 후 5도 상승한다.
-	// 완료 조건: 실제 대기 없이 output write와 plant temperature evolution의 분리가 test로 보장된다.
+	// 목적: Start transport write가 아니라 configured semantic point에서만 virtual heater와 ACK가 함께 적용되는지 검증한다.
+	// 예상 결과: write와 delay 전에는 20도/ACK 0, semantic point에서는 20도/ACK 1, 이후 Advance 1초에만 25도가 된다.
+	// 완료 조건: Written receipt가 virtual semantic effect나 temperature evolution을 선행하지 않는다.
 	[TestMethod]
-	public async Task WriteStartThenAdvance_ChangesTemperatureOnlyAfterExplicitVirtualTime()
+	public async Task WriteStart_ActivatesHeaterOnlyAtSemanticPoint()
 	{
-		var client = new VirtualPlcClient(VirtualPlcOptions.Illustrative);
+		var options = new VirtualPlcOptions(20d, 5d, TimeSpan.FromSeconds(2));
+		var client = new VirtualPlcClient(options);
 		IPlcClient port = client;
 		await port.ConnectAsync(CancellationToken.None);
 
 		var receipt = await port.WriteOutputsAsync(
 			new PlcOutputCommand(1, PlcCommandKind.Start),
 			CancellationToken.None);
-		var temperatureBeforeAdvance = (await port.ReadInputsAsync(CancellationToken.None)).CurrentTemperature;
-
+		var afterWrite = await port.ReadInputsAsync(CancellationToken.None);
 		client.SimulationControl.Advance(TimeSpan.FromSeconds(1));
-		var temperatureAfterAdvance = (await port.ReadInputsAsync(CancellationToken.None)).CurrentTemperature;
+		var beforeSemanticPoint = await port.ReadInputsAsync(CancellationToken.None);
+		client.SimulationControl.Advance(TimeSpan.FromSeconds(1));
+		var atSemanticPoint = await port.ReadInputsAsync(CancellationToken.None);
+		client.SimulationControl.Advance(TimeSpan.FromSeconds(1));
+		var afterHeating = await port.ReadInputsAsync(CancellationToken.None);
 
 		Assert.AreEqual(PlcTransportWriteStatus.Written, receipt.TransportStatus);
-		Assert.AreEqual(20d, temperatureBeforeAdvance);
-		Assert.AreEqual(25d, temperatureAfterAdvance);
+		Assert.AreEqual(20d, afterWrite.CurrentTemperature);
+		Assert.AreEqual(0L, afterWrite.AcknowledgedCommandId);
+		Assert.AreEqual(20d, beforeSemanticPoint.CurrentTemperature);
+		Assert.AreEqual(0L, beforeSemanticPoint.AcknowledgedCommandId);
+		Assert.AreEqual(20d, atSemanticPoint.CurrentTemperature);
+		Assert.AreEqual(1L, atSemanticPoint.AcknowledgedCommandId);
+		Assert.AreEqual(25d, afterHeating.CurrentTemperature);
+	}
+
+	// 목적: Start semantic point를 넘는 one-step Advance와 equivalent split Advance가 같은 plant/ACK 결과인지 검증한다.
+	// 예상 결과: delay 2초 뒤 총 3초를 one-step 또는 2+1초로 진행하면 모두 온도 25와 ACK 1이다.
+	// 완료 조건: virtual Start semantics와 thermal integration이 caller step partition에 의존하지 않는다.
+	[TestMethod]
+	public async Task AdvanceAcrossStartSemanticPoint_IsPartitionInvariant()
+	{
+		var options = new VirtualPlcOptions(20d, 5d, TimeSpan.FromSeconds(2));
+		var oneStep = new VirtualPlcClient(options);
+		var split = new VirtualPlcClient(options);
+		IPlcClient oneStepPort = oneStep;
+		IPlcClient splitPort = split;
+		await oneStepPort.ConnectAsync(CancellationToken.None);
+		await splitPort.ConnectAsync(CancellationToken.None);
+		await oneStepPort.WriteOutputsAsync(new PlcOutputCommand(1, PlcCommandKind.Start), CancellationToken.None);
+		await splitPort.WriteOutputsAsync(new PlcOutputCommand(1, PlcCommandKind.Start), CancellationToken.None);
+
+		oneStep.SimulationControl.Advance(TimeSpan.FromSeconds(3));
+		split.SimulationControl.Advance(TimeSpan.FromSeconds(2));
+		split.SimulationControl.Advance(TimeSpan.FromSeconds(1));
+		var oneStepSnapshot = await oneStepPort.ReadInputsAsync(CancellationToken.None);
+		var splitSnapshot = await splitPort.ReadInputsAsync(CancellationToken.None);
+
+		Assert.AreEqual(25d, oneStepSnapshot.CurrentTemperature);
+		Assert.AreEqual(1L, oneStepSnapshot.AcknowledgedCommandId);
+		Assert.AreEqual(oneStepSnapshot.CurrentTemperature, splitSnapshot.CurrentTemperature);
+		Assert.AreEqual(oneStepSnapshot.AcknowledgedCommandId, splitSnapshot.AcknowledgedCommandId);
 	}
 
 	// 목적: observation input control로 변경한 door input이 production PLC port read에 반영되는지 검증한다.

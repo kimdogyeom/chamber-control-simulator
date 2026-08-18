@@ -16,6 +16,8 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\ChamberControlSimulator.Application\ChamberControlSimulator.Application.csproj" />
+    <ProjectReference Include="..\ChamberControlSimulator.Core\ChamberControlSimulator.Core.csproj" />
     <ProjectReference Include="..\ChamberControlSimulator.Plc.Abstractions\ChamberControlSimulator.Plc.Abstractions.csproj" />
     <ProjectReference Include="..\ChamberControlSimulator.Plc.Simulation\ChamberControlSimulator.Plc.Simulation.csproj" />
   </ItemGroup>

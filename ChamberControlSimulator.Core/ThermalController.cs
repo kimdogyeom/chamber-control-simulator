@@ -70,6 +70,21 @@ public sealed class ThermalController
 		return _commandReservation;
 	}
 
+	internal bool TryCompleteAcknowledgedCommand(ControllerCommandReservation reservation)
+	{
+		ArgumentNullException.ThrowIfNull(reservation);
+		if (!ReferenceEquals(_commandReservation, reservation) ||
+			reservation.IsInvalidated ||
+			IsCommandEligible(reservation.Kind) == false)
+		{
+			return false;
+		}
+
+		_commandReservation = null;
+		ApplyCommand(reservation.Kind);
+		return true;
+	}
+
 	public void Start()
 	{
 		TryApplyImmediateCommand(ControllerCommandKind.Start);

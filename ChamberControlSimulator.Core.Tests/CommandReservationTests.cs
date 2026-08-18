@@ -111,18 +111,83 @@ public sealed class CommandReservationTests
 		Assert.IsEmpty(controller.EventHistory);
 	}
 
-	// 목적: reservation object와 ThermalController public surface가 T1에서 commit 또는 release authority를 노출하지 않는지 검증한다.
-	// 예상 결과: reservation에는 public constructor/property가 없고 acknowledged apply/invalidate public method도 없다.
-	// 완료 조건: semantic ACK/reconciliation implementation 전에는 caller가 Core state transition이나 reservation release를 직접 호출할 수 없다.
+	// 목적: T3 completion seam이 public generic reservation apply/release authority로 노출되지 않는지 검증한다.
+	// 예상 결과: reservation public constructor/property가 없고 completion method는 non-public instance member다.
+	// 완료 조건: external caller가 public reservation token만으로 Start/Stop/Reset을 complete하거나 fence를 release할 수 없다.
 	[TestMethod]
-	public void ReservationContract_ExposesNoPublicCommitOrReleaseAuthority()
+	public void ReservationContract_ExposesOnlyNonPublicAcknowledgedCompletionAuthority()
 	{
 		var reservationType = typeof(ControllerCommandReservation);
 		var controllerType = typeof(ThermalController);
+		var completion = controllerType.GetMethod(
+			"TryCompleteAcknowledgedCommand",
+			BindingFlags.Instance | BindingFlags.NonPublic);
 
 		Assert.IsEmpty(reservationType.GetConstructors(BindingFlags.Instance | BindingFlags.Public));
 		Assert.IsEmpty(reservationType.GetProperties(BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly));
-		Assert.IsNull(controllerType.GetMethod("TryApplyAcknowledgedReservation", BindingFlags.Instance | BindingFlags.Public));
+		Assert.IsNotNull(completion);
+		Assert.IsFalse(completion.IsPublic);
+		Assert.IsNull(controllerType.GetMethod("TryCompleteAcknowledgedCommand", BindingFlags.Instance | BindingFlags.Public));
 		Assert.IsNull(controllerType.GetMethod("InvalidateCommandReservation", BindingFlags.Instance | BindingFlags.Public));
+	}
+
+	// 목적: owned active Start reservation이 acknowledged completion seam에서 eligibility를 재검증하고 정확히 한 번 소비되는지 검증한다.
+	// 예상 결과: first completion만 true이며 Core는 Heating과 one Start event로 전환하고 duplicate completion은 false다.
+	// 완료 조건: exact ACK 이후 one-shot Core transition과 reservation consumption이 Core 자체 규칙으로 보장된다.
+	[TestMethod]
+	public void TryCompleteAcknowledgedCommand_EligibleOwnedStart_CompletesExactlyOnce()
+	{
+		var controller = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
+		var reservation = controller.TryReserveCommand(ControllerCommandKind.Start);
+		Assert.IsNotNull(reservation);
+
+		var first = controller.TryCompleteAcknowledgedCommand(reservation);
+		var second = controller.TryCompleteAcknowledgedCommand(reservation);
+
+		Assert.IsTrue(first);
+		Assert.IsFalse(second);
+		Assert.AreEqual(ControllerState.Heating, controller.Snapshot.State);
+		Assert.HasCount(3, controller.EventHistory);
+		Assert.HasCount(1, controller.EventHistory.Where(entry => entry.Event == "Start"));
+	}
+
+	// 목적: unsafe door interval로 invalidated된 Start reservation이 safe ABA 뒤 acknowledged 되어도 revive되지 않는지 검증한다.
+	// 예상 결과: completion은 false, Core는 Idle/event-empty, original fence는 replacement reservation을 계속 막는다.
+	// 완료 조건: acknowledged-but-ineligible path가 reservation release나 later safe replay를 허용하지 않는다.
+	[TestMethod]
+	public void TryCompleteAcknowledgedCommand_InvalidatedStartAfterSafeAba_RemainsHeld()
+	{
+		var controller = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
+		var reservation = controller.TryReserveCommand(ControllerCommandKind.Start);
+		Assert.IsNotNull(reservation);
+		controller.SetDoorOpen(true);
+		controller.SetDoorOpen(false);
+
+		var completed = controller.TryCompleteAcknowledgedCommand(reservation);
+		var replacement = controller.TryReserveCommand(ControllerCommandKind.Start);
+
+		Assert.IsFalse(completed);
+		Assert.IsNull(replacement);
+		Assert.AreEqual(ControllerState.Idle, controller.Snapshot.State);
+		Assert.IsEmpty(controller.EventHistory);
+	}
+
+	// 목적: 다른 ThermalController가 발급한 reservation token이 acknowledged completion authority로 재사용되지 않는지 검증한다.
+	// 예상 결과: foreign controller completion은 false이고 두 controller 모두 reservation fence와 Idle state를 보존한다.
+	// 완료 조건: reservation identity가 owning Core instance에 묶여 generic token replay를 막는다.
+	[TestMethod]
+	public void TryCompleteAcknowledgedCommand_ForeignReservation_IsRejectedWithoutRelease()
+	{
+		var owner = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
+		var other = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
+		var reservation = owner.TryReserveCommand(ControllerCommandKind.Start);
+		Assert.IsNotNull(reservation);
+
+		var completed = other.TryCompleteAcknowledgedCommand(reservation);
+
+		Assert.IsFalse(completed);
+		Assert.IsNull(owner.TryReserveCommand(ControllerCommandKind.Start));
+		Assert.AreEqual(ControllerState.Idle, owner.Snapshot.State);
+		Assert.AreEqual(ControllerState.Idle, other.Snapshot.State);
 	}
 }

@@ -5,7 +5,7 @@ namespace ChamberControlSimulator.Plc.Simulation;
 public sealed class VirtualPlcClient : IPlcClient
 {
 	private readonly VirtualPlcOptions _options;
-	private readonly List<PendingAcknowledgement> _pendingAcknowledgements = [];
+	private readonly List<PendingSemanticCommand> _pendingSemanticCommands = [];
 	private bool _doorClosed = true;
 	private bool _sensorHealthy = true;
 	private bool _heaterEnabled;
@@ -69,21 +69,12 @@ public sealed class VirtualPlcClient : IPlcClient
 		cancellationToken.ThrowIfCancellationRequested();
 		EnsureConnected();
 
-		if (command.Kind == PlcCommandKind.Start)
-		{
-			_heaterEnabled = true;
-		}
-
-		if (_suppressNextAcknowledgement)
-		{
-			_suppressNextAcknowledgement = false;
-		}
-		else
-		{
-			_pendingAcknowledgements.Add(new PendingAcknowledgement(
-				command.CommandId,
-				_virtualTime + _options.AcknowledgementDelay));
-		}
+		_pendingSemanticCommands.Add(new PendingSemanticCommand(
+			command.CommandId,
+			command.Kind,
+			_virtualTime + _options.AcknowledgementDelay,
+			_suppressNextAcknowledgement));
+		_suppressNextAcknowledgement = false;
 
 		return Task.FromResult(new PlcWriteReceipt(
 			command.CommandId,
@@ -106,14 +97,43 @@ public sealed class VirtualPlcClient : IPlcClient
 			throw new ArgumentOutOfRangeException(nameof(elapsed));
 		}
 
-		_virtualTime += elapsed;
+		var targetTime = _virtualTime + elapsed;
+		while (TryGetNextSemanticTime(targetTime, out var semanticTime))
+		{
+			AdvancePlantTo(semanticTime);
+			ApplyDueSemanticCommands();
+		}
 
+		AdvancePlantTo(targetTime);
+	}
+
+	private bool TryGetNextSemanticTime(TimeSpan targetTime, out TimeSpan semanticTime)
+	{
+		var found = false;
+		semanticTime = TimeSpan.Zero;
+		foreach (var pending in _pendingSemanticCommands)
+		{
+			if (pending.DueAt > targetTime || found && pending.DueAt >= semanticTime)
+			{
+				continue;
+			}
+
+			found = true;
+			semanticTime = pending.DueAt < _virtualTime ? _virtualTime : pending.DueAt;
+		}
+
+		return found;
+	}
+
+	private void AdvancePlantTo(TimeSpan targetTime)
+	{
+		var elapsed = targetTime - _virtualTime;
 		if (_heaterEnabled)
 		{
 			_currentTemperature += _options.HeatingRatePerSecond * elapsed.TotalSeconds;
 		}
 
-		AcknowledgeDueCommands();
+		_virtualTime = targetTime;
 	}
 
 	internal void ForceTransportDisconnect()
@@ -152,19 +172,28 @@ public sealed class VirtualPlcClient : IPlcClient
 		_doorClosed = doorClosed;
 	}
 
-	private void AcknowledgeDueCommands()
+	private void ApplyDueSemanticCommands()
 	{
-		for (var index = 0; index < _pendingAcknowledgements.Count;)
+		for (var index = 0; index < _pendingSemanticCommands.Count;)
 		{
-			var pending = _pendingAcknowledgements[index];
+			var pending = _pendingSemanticCommands[index];
 			if (pending.DueAt > _virtualTime)
 			{
 				index++;
 				continue;
 			}
 
-			_acknowledgedCommandId = pending.CommandId;
-			_pendingAcknowledgements.RemoveAt(index);
+			if (pending.Kind == PlcCommandKind.Start)
+			{
+				_heaterEnabled = true;
+			}
+
+			if (!pending.SuppressAcknowledgement)
+			{
+				_acknowledgedCommandId = pending.CommandId;
+			}
+
+			_pendingSemanticCommands.RemoveAt(index);
 		}
 	}
 
@@ -183,7 +212,9 @@ public sealed class VirtualPlcClient : IPlcClient
 		ObjectDisposedException.ThrowIf(_disposed, this);
 	}
 
-	private sealed record PendingAcknowledgement(
+	private sealed record PendingSemanticCommand(
 		long CommandId,
-		TimeSpan DueAt);
+		PlcCommandKind Kind,
+		TimeSpan DueAt,
+		bool SuppressAcknowledgement);
 }

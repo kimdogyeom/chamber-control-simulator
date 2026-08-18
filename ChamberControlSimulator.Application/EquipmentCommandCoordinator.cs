@@ -97,6 +97,7 @@ public sealed class EquipmentCommandCoordinator
 	private ControllerCommandReservation? _reservation;
 	private EquipmentCommandAdmission? _pendingCommand;
 	private bool _dispatchStarted;
+	private bool _completionAttempted;
 	private long? _nextCommandId = 1;
 
 	public EquipmentCommandCoordinator(
@@ -118,11 +119,21 @@ public sealed class EquipmentCommandCoordinator
 		}
 	}
 
-	public EquipmentCommandAdmissionResult TryAdmit(ControllerCommandKind kind)
+	public EquipmentCommandAdmissionResult TryAdmit(ControllerCommandKind kind) =>
+		TryAdmitAfter(kind, minimumExclusiveCommandId: 0);
+
+	internal EquipmentCommandAdmissionResult TryAdmitAfter(
+		ControllerCommandKind kind,
+		long minimumExclusiveCommandId)
 	{
 		if (!Enum.IsDefined(kind))
 		{
 			throw new ArgumentOutOfRangeException(nameof(kind));
+		}
+
+		if (minimumExclusiveCommandId < 0)
+		{
+			throw new ArgumentOutOfRangeException(nameof(minimumExclusiveCommandId));
 		}
 
 		lock (_gate)
@@ -137,12 +148,12 @@ public sealed class EquipmentCommandCoordinator
 				return new EquipmentCommandAdmissionResult(EquipmentCommandAdmissionDisposition.Busy, null);
 			}
 
-			if (_nextCommandId is null)
+			if (_nextCommandId is null || minimumExclusiveCommandId == long.MaxValue)
 			{
 				throw new InvalidOperationException("Command ID allocation is exhausted.");
 			}
 
-			var commandId = _nextCommandId.Value;
+			var commandId = Math.Max(_nextCommandId.Value, minimumExclusiveCommandId + 1);
 			var reservation = _controller.TryReserveCommand(kind);
 			if (reservation is null)
 			{
@@ -184,6 +195,25 @@ public sealed class EquipmentCommandCoordinator
 			: EquipmentCommandTransportDisposition.DeliveryIndeterminate;
 
 		return new EquipmentCommandTransportResult(pendingCommand.CommandId, disposition);
+	}
+
+	internal bool TryCompleteAcknowledgedStart(long commandId)
+	{
+		lock (_gate)
+		{
+			if (_pendingCommand is null ||
+				_pendingCommand.CommandId != commandId ||
+				_pendingCommand.Kind != ControllerCommandKind.Start ||
+				_reservation is null ||
+				_dispatchStarted == false ||
+				_completionAttempted)
+			{
+				return false;
+			}
+
+			_completionAttempted = true;
+			return _controller.TryCompleteAcknowledgedCommand(_reservation);
+		}
 	}
 
 	private static PlcCommandKind MapCommandKind(ControllerCommandKind kind) => kind switch
