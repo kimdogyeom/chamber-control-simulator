@@ -23,7 +23,7 @@ P4-T2 narrow output/transport receipt의 source anchor는 `254c546` (`feat: disp
 
 P4-T3 Start-only exact fresh semantic ACK의 source anchor는 `7a874e8` (`feat: complete Start on exact fresh PLC acknowledgement`)다. internal/friend Core completion, latest accepted P3 baseline, ACK high-water ID allocation, shared P3/P4 I/O serialization, strictly later exact ACK completion, terminal ambiguity holds, exact Virtual semantic-time slicing을 포함한다. Core 36/36, Application 24/24, Simulation 16/16, Debug 0 warnings/0 errors, full 114/114를 통과했다. initial frozen source review의 semantic-time partition blocker와 ambiguity-test advisory를 repair한 v2 generation이 independent PASS를 받았다.
 
-P4-T4 monotonic lifecycle hold와 awaited Start/close ownership의 source anchor는 `0e2f6d2` (`feat: enforce monotonic command lifecycle holds`)다. injected Application `TimeProvider`, exact 3초 receipt/ACK epochs, explicit timeout state, noncooperative write lease transfer, stable terminal evidence, separate Presentation command/observation capabilities, awaited Start와 close task ownership을 포함한다. Application 35/35, Simulation 16/16, Presentation 21/21, Debug 0 warnings/0 errors, full 127/127를 통과했다. initial frozen review의 exact-tie, terminal-state overwrite, capability-boundary blockers를 repair한 v2 generation이 independent PASS를 받았다.
+P4-T4 monotonic lifecycle hold와 awaited Start/close ownership의 primary source anchor는 `0e2f6d2` (`feat: enforce monotonic command lifecycle holds`), late physical-write diagnostic repair는 `cdbca25` (`fix: preserve late write failure evidence`)다. injected Application `TimeProvider`, exact 3초 receipt/ACK epochs, explicit timeout state, noncooperative write lease transfer, stable terminal evidence, separate Presentation command/observation capabilities, awaited Start와 close task ownership을 포함한다. final Application 36/36, Simulation 16/16, Presentation 21/21, Debug 0 warnings/0 errors, full 128/128를 통과했다. initial source-review blockers와 mandatory cleaner late-fault blocker를 각각 repair했고 final cleaner, cumulative architect review, completion red-team이 모두 PASS했다.
 
 ## 2. 범위와 안전 한계
 
@@ -42,7 +42,7 @@ PC application의 Door/temperature/sensor interlock은 software policy demonstra
 | P3-T2 atomic observation mapping | Completed | `3a7398d`; focused Core 3/3, Application 3/3, Debug build 0 warnings/0 errors, full regression 65/65; manifest `1f65b461e9a08e08f0559b9018f2af27a6e600decf53114c756221283f42a090` PASS |
 | P3-T3 plant simulation 분리 | Completed | `b949e6c`; focused Tick contract 1/1, Debug build 0 warnings/0 errors, full regression 66/66; manifest `e7e94da9061b06428e9370c3fdbf1af28a28e2d5f451070d8de0e292039f540f` PASS |
 | P3-T4 WinForms observation composition | Completed | implementation `2e502fa`; current solution baseline `9c3ad95`; P3-only concrete input facade, async cycle/close teardown, 80/80, two independent reviews PASS; user-driven Session 1 input-to-render/close smoke completed |
-| P4 command lifecycle | P4-T1/P4-T2/P4-T3/P4-T4 Completed | reservation/admission `8f32ce7`; output/receipt `254c546`; Start exact ACK `7a874e8`; monotonic lifecycle/awaited UI ownership `0e2f6d2`; P4-T4 Application 35/35 + Simulation 16/16 + Presentation 21/21, Debug 0/0, full 127/127, repaired frozen source review PASS; P4-T5 not implemented |
+| P4 command lifecycle | P4-T1/P4-T2/P4-T3/P4-T4 Completed | reservation/admission `8f32ce7`; output/receipt `254c546`; Start exact ACK `7a874e8`; monotonic lifecycle/awaited UI ownership `0e2f6d2` + diagnostic repair `cdbca25`; P4-T4 Application 36/36 + Simulation 16/16 + Presentation 21/21, Debug 0/0, full 128/128, repaired frozen/final cleanup reviews PASS; P4-T5 not implemented |
 
 각 P3/P4 자동 검증 수치는 해당 source SHA와 tracked verification receipt에만 bound된다. later P4 slice, production release, real equipment, 또는 safety claim으로 확장하지 않는다.
 
@@ -148,7 +148,7 @@ Form closing
   → dispose one concrete owner once; no late render
 ```
 
-`TimeProvider.GetTimestamp/GetElapsedTime`만 deadline authority다. receipt deadline은 output invocation, ACK deadline은 timely exact matching `Written`에서 시작하며 admission/Core/wall clock에 들어가지 않는다. timeout/cancellation 당시 physical write가 settle하지 않았으면 gate release를 continuation에 양도해 P3 read와 later write를 계속 막는다. eventual receipt, late exact ACK, reconnect observation은 evidence일 뿐 terminal state를 revive하지 않는다.
+`TimeProvider.GetTimestamp/GetElapsedTime`만 deadline authority다. receipt deadline은 output invocation, ACK deadline은 timely exact matching `Written`에서 시작하며 admission/Core/wall clock에 들어가지 않는다. timeout/cancellation 당시 physical write가 settle하지 않았으면 gate release를 continuation에 양도해 P3 read와 later write를 계속 막는다. eventual receipt, late exact ACK, reconnect observation은 evidence일 뿐 terminal state를 revive하지 않는다. late physical fault는 `TraceError`에 기록되고 settlement `finally`에서만 gate가 풀린다.
 
 Presentation capability는 `IEquipmentObservationRuntime`과 `IEquipmentCommandRuntime`으로 분리된다. Start event만 awaitable command path를 사용한다. Stop/Reset UI handler는 legacy direct Core routing을 유지하며 P4 command lifecycle completion이 아니다.
 
@@ -294,7 +294,7 @@ Active phase
 
 ### P3 source evidence
 
-P1/P2/P3 source/test provenance는 각 local commit과 receipt에 남아 있다. P4-T1은 [`p4-t1-command-reservation-and-id-admission.md`](verification/p4-t1-command-reservation-and-id-admission.md)에 `8f32ce7`, P4-T2는 [`p4-t2-output-port-and-transport-receipt.md`](verification/p4-t2-output-port-and-transport-receipt.md)에 `254c546`, P4-T3는 [`p4-t3-exact-fresh-start-semantic-ack.md`](verification/p4-t3-exact-fresh-start-semantic-ack.md)에 `7a874e8`, P4-T4는 [`p4-t4-monotonic-lifecycle-holds.md`](verification/p4-t4-monotonic-lifecycle-holds.md)에 `0e2f6d2`, exact 12-path scope, 35/35 + 16/16 + 21/21, full 127/127, repaired frozen-review evidence를 기록한다.
+P1/P2/P3 source/test provenance는 각 local commit과 receipt에 남아 있다. P4-T1은 [`p4-t1-command-reservation-and-id-admission.md`](verification/p4-t1-command-reservation-and-id-admission.md)에 `8f32ce7`, P4-T2는 [`p4-t2-output-port-and-transport-receipt.md`](verification/p4-t2-output-port-and-transport-receipt.md)에 `254c546`, P4-T3는 [`p4-t3-exact-fresh-start-semantic-ack.md`](verification/p4-t3-exact-fresh-start-semantic-ack.md)에 `7a874e8`, P4-T4는 [`p4-t4-monotonic-lifecycle-holds.md`](verification/p4-t4-monotonic-lifecycle-holds.md)에 primary `0e2f6d2`, diagnostic repair `cdbca25`, exact primary 12-path + repair 2-path scope, 36/36 + 16/16 + 21/21, full 128/128, repaired frozen/cleaner/cumulative/red-team evidence를 기록한다.
 
 ### 재현 명령
 
@@ -304,4 +304,4 @@ dotnet build ChamberControlSimulator.slnx --configuration Debug --no-restore
 dotnet test ChamberControlSimulator.slnx --configuration Debug --no-build --no-restore
 ```
 
-P3-T2 result는 `3a7398d`, P3-T3는 `b949e6c`, P3-T4는 `2e502fa`, P4-T1은 `8f32ce7`, P4-T2는 `254c546`, P4-T3는 `7a874e8`, P4-T4는 `0e2f6d2` source commit과 각 tracked verification receipt를 기준으로 재현한다.
+P3-T2 result는 `3a7398d`, P3-T3는 `b949e6c`, P3-T4는 `2e502fa`, P4-T1은 `8f32ce7`, P4-T2는 `254c546`, P4-T3는 `7a874e8`, P4-T4는 primary `0e2f6d2`와 diagnostic repair `cdbca25` source commit 및 tracked verification receipt를 기준으로 재현한다.

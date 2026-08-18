@@ -17,7 +17,7 @@ WinForms 기반 가상 열처리 챔버 제어 시뮬레이터입니다. UI, Cor
 | P3-T2 atomic `ThermalObservation` mapping | Completed | `3a7398d`; focused Core 3/3, Application 3/3, Debug build 0 warnings/0 errors, full regression 65/65, Windows-byte source review manifest `1f65b461e9a08e08f0559b9018f2af27a6e600decf53114c756221283f42a090` PASS |
 | P3-T3 Core plant simulation 분리 | Completed | `b949e6c`; focused Tick contract 1/1, Debug build 0 warnings/0 errors, full regression 66/66, Windows-byte source review manifest `e7e94da9061b06428e9370c3fdbf1af28a28e2d5f451070d8de0e292039f540f` PASS |
 | P3-T4 WinForms observation composition | Completed | implementation `2e502fa`; current solution baseline `9c3ad95`; P3-only concrete input facade, async non-overlapping observation cycle, close teardown, full regression 80/80, independent source/artifact reviews PASS; user-driven Session 1 smoke에서 observed input `20 → 30 → Apply` 후 `30.00 °C` rendering, Idle 유지, 오류 없음이 보고되었고 UI 종료 후 process absence를 확인 |
-| P4 command lifecycle | P4-T1/P4-T2/P4-T3/P4-T4 Completed | reservation/admission `8f32ce7`; output/receipt `254c546`; Start exact fresh ACK `7a874e8`; monotonic timeout/terminal hold + awaited Start/close ownership `0e2f6d2`; P4-T4 Application 35/35 + Simulation 16/16 + Presentation 21/21, Debug 0 warnings/0 errors, full 127/127, repaired frozen Windows-byte review PASS. P4-T5 Stop/Reset completion은 구현하지 않음 |
+| P4 command lifecycle | P4-T1/P4-T2/P4-T3/P4-T4 Completed | reservation/admission `8f32ce7`; output/receipt `254c546`; Start exact fresh ACK `7a874e8`; monotonic timeout/terminal hold + awaited Start/close ownership `0e2f6d2`; late physical-write diagnostic repair `cdbca25`; P4-T4 Application 36/36 + Simulation 16/16 + Presentation 21/21, Debug 0 warnings/0 errors, full 128/128, repaired frozen reviews and completion red-team PASS. P4-T5 Stop/Reset completion은 구현하지 않음 |
 
 ## 현재 구현된 책임 경계
 
@@ -121,7 +121,7 @@ CycleAsync(...)
 ```
 
 - injected `TimeProvider`의 monotonic timestamp만 사용한다. receipt deadline은 write invocation, ACK deadline은 timely exact matching `Written`에서 각각 시작한다. admission이나 wall clock에서 시작하지 않는다.
-- noncooperative write timeout/cancellation은 physical write task가 settle할 때까지 shared semaphore lease를 continuation에 넘긴다. 그동안 P3 read와 later write는 막히며 eventual receipt는 terminal state를 complete/retry/release하지 않는다.
+- noncooperative write timeout/cancellation은 physical write task가 settle할 때까지 shared semaphore lease를 continuation에 넘긴다. 그동안 P3 read와 later write는 막히며 eventual receipt는 terminal state를 complete/retry/release하지 않는다. late fault는 `TraceError` diagnostic으로 보존하고 `finally`에서만 lease를 해제한다.
 - exact-boundary tie, delayed continuation, late ACK, duplicate Start, disconnect/reconnect observation, timeout 뒤 cancellation을 포함해 explicit terminal evidence와 one-ID/one-write fence를 보존한다.
 - awaited UI Start와 close ownership은 자동 test evidence다. operator smoke, Stop/Reset P4 completion, reconnect recovery, real device/equipment behavior를 뜻하지 않는다. source anchor와 exact evidence는 [`docs/verification/p4-t4-monotonic-lifecycle-holds.md`](docs/verification/p4-t4-monotonic-lifecycle-holds.md)에 기록한다.
 
@@ -164,8 +164,8 @@ P3-T4 source `2e502fa`는 Form/Presenter를 PLC observation runtime에 연결했
 
 - `docs/verification/baseline-v0.1.md`와 `docs/verification/invariants.md`는 P0 baseline에 묶인 tracked evidence다.
 - `docs/demo/images/`와 `docs/demo/SCENARIOS.md`의 캡처는 P0 direct Presenter/Core runtime evidence다.
-- P1/P2/P3 provenance는 각 source receipt에 남아 있다. P4-T1은 [`p4-t1-command-reservation-and-id-admission.md`](docs/verification/p4-t1-command-reservation-and-id-admission.md)에 `8f32ce7`, P4-T2는 [`p4-t2-output-port-and-transport-receipt.md`](docs/verification/p4-t2-output-port-and-transport-receipt.md)에 `254c546`, P4-T3는 [`p4-t3-exact-fresh-start-semantic-ack.md`](docs/verification/p4-t3-exact-fresh-start-semantic-ack.md)에 `7a874e8`, P4-T4는 [`p4-t4-monotonic-lifecycle-holds.md`](docs/verification/p4-t4-monotonic-lifecycle-holds.md)에 `0e2f6d2` SHA와 함께 기록한다.
-- P4-T1 full 92/92는 `8f32ce7`, P4-T2 full 96/96는 `254c546`, P4-T3 full 114/114는 `7a874e8`, P4-T4 Application 35/35 + Simulation 16/16 + Presentation 21/21와 full 127/127는 `0e2f6d2`에만 bound된다. 어느 결과도 P4-T5 Stop/Reset completion, reconnect recovery, real Modbus TCP/PLC/equipment, E-Stop, Safety PLC, hardware safety, 또는 human safety를 뜻하지 않는다.
+- P1/P2/P3 provenance는 각 source receipt에 남아 있다. P4-T1은 [`p4-t1-command-reservation-and-id-admission.md`](docs/verification/p4-t1-command-reservation-and-id-admission.md)에 `8f32ce7`, P4-T2는 [`p4-t2-output-port-and-transport-receipt.md`](docs/verification/p4-t2-output-port-and-transport-receipt.md)에 `254c546`, P4-T3는 [`p4-t3-exact-fresh-start-semantic-ack.md`](docs/verification/p4-t3-exact-fresh-start-semantic-ack.md)에 `7a874e8`, P4-T4는 [`p4-t4-monotonic-lifecycle-holds.md`](docs/verification/p4-t4-monotonic-lifecycle-holds.md)에 primary `0e2f6d2`와 diagnostic repair `cdbca25` SHA를 함께 기록한다.
+- P4-T1 full 92/92는 `8f32ce7`, P4-T2 full 96/96는 `254c546`, P4-T3 full 114/114는 `7a874e8`, P4-T4 final Application 36/36 + Simulation 16/16 + Presentation 21/21와 full 128/128는 cleaner repair `cdbca25`에 bound된다. 어느 결과도 P4-T5 Stop/Reset completion, reconnect recovery, real Modbus TCP/PLC/equipment, E-Stop, Safety PLC, hardware safety, 또는 human safety를 뜻하지 않는다.
 
 ## 재현 명령
 

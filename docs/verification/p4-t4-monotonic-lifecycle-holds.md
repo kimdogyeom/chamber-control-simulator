@@ -4,9 +4,9 @@
 
 - Authoritative repository: Windows `C:\Users\rlaeh\source\repos\chamber-control-simulator`
 - Branch: `main`
-- Source commit: `0e2f6d2505e340846509b42987bd88eac6c812d1`
-- Parent: `9f762ef53f9c6d711bf2623c45b6ec5fe1b90ca7`
-- Subject: `feat: enforce monotonic command lifecycle holds`
+- Primary source commit: `0e2f6d2505e340846509b42987bd88eac6c812d1` (parent `9f762ef53f9c6d711bf2623c45b6ec5fe1b90ca7`)
+- Cleaner repair source commit: `cdbca251730e67a6cc1ef7cd4bf70c336f256d74` (parent `fa07505d15b387ebc65ac80902d1f474377fda0e`)
+- Subjects: `feat: enforce monotonic command lifecycle holds`; `fix: preserve late write failure evidence`
 - Scope: source/test behavior only. This receipt is a separate tracked documentation checkpoint.
 
 `Completed` here means that the exact source commit, source-bound Windows validation, frozen-byte integrity verification, and repaired-generation independent review exist. It does not mean P4-T5 Stop/Reset completion, automatic reconnect recovery, operator UI smoke, real PLC/equipment behavior, or safety certification.
@@ -26,7 +26,7 @@
 11. `ChamberControlSimulator/Presentation/IEquipmentView.cs`
 12. `ChamberControlSimulator/Program.cs`
 
-No Core, PLC abstraction/implementation, Modbus adapter, service, device, Stop/Reset command-completion, or reconnect-recovery source changed.
+The primary source changed the 12 paths above. Cleaner repair `cdbca25` changed only paths 1 and 4 to preserve late physical-write diagnostics and add its direct regression. No Core, PLC abstraction/implementation, Modbus adapter, service, device, Stop/Reset command-completion, or reconnect-recovery source changed.
 
 ## Implemented contract
 
@@ -44,7 +44,7 @@ Admission time does not start either epoch. A transport receipt still is not sem
 
 ### Shared lease and terminal evidence
 
-P3 observation reads and P4 writes retain one `SemaphoreSlim` boundary. If timeout or cancellation occurs while a write ignores cancellation, the request returns or throws but transfers gate release to a continuation that observes actual physical task settlement. P3 reads and later writes remain blocked until then. The eventual result cannot start an ACK epoch, complete Core, retry, replay, release the reservation, or allocate another ID.
+P3 observation reads and P4 writes retain one `SemaphoreSlim` boundary. If timeout or cancellation occurs while a write ignores cancellation, the request returns or throws but transfers gate release to a continuation that observes actual physical task settlement. P3 reads and later writes remain blocked until then. A late physical fault is preserved through `TraceError`; shared-gate release stays in `finally`. The eventual result cannot start an ACK epoch, complete Core, retry, replay, release the reservation, or allocate another ID.
 
 `ReceiptTimedOut`, `AcknowledgementTimedOut`, `ReconciliationRequired`, `AcknowledgedButCoreIneligible`, and `Completed` are stable terminal evidence. A later exact ACK, wrong/higher ACK, reconnect observation, transport completion, or cycle cancellation cannot revive or generically overwrite them. Duplicate Start requests produce no new ID or write. `StopAdmission` synchronously closes admission before shutdown cancellation.
 
@@ -65,14 +65,14 @@ Expected RED was captured before implementation:
 
 Final authoritative Windows results after review repair:
 
-- Application: **35/35 passed**
+- Application: **36/36 passed**
 - Simulation: **16/16 passed**
 - Presentation: **21/21 passed**
 - Debug solution build: **0 warnings / 0 errors**
-- Full solution: **127/127 passed** (Abstractions 19 + Core 36 + Application 35 + Simulation 16 + Presentation 21)
+- Full solution: **128/128 passed** (Abstractions 19 + Core 36 + Application 36 + Simulation 16 + Presentation 21)
 - `git diff --check`: passed
 
-These figures are bound to source `0e2f6d2505e340846509b42987bd88eac6c812d1`, not to future P4-T5 behavior.
+These final figures are bound to cleaner repair source `cdbca251730e67a6cc1ef7cd4bf70c336f256d74` on top of primary source `0e2f6d2505e340846509b42987bd88eac6c812d1`, not to future P4-T5 behavior.
 
 ## Frozen review and repair provenance
 
@@ -94,7 +94,23 @@ Final repaired generation:
 - Integrity checks: exact payload hashes/counts, exact 12-path canonical patch, patch apply-check, Git-normalized candidate equivalence — passed
 - Independent architecture/product/code review: **PASS**, no remaining findings; all prior blockers resolved
 
-Stage/commit verification proved that the committed 12 paths and blobs exactly matched the repaired reviewed allowlist. Fresh Windows bundle SHA-256 `1072edfb347a961a03a25ceccbc8d2fd2a7782496822e540039f0bf6d307d158` realigned the zero-remote control mirror to the source commit.
+Stage/commit verification proved that the committed 12 primary paths and blobs exactly matched the repaired reviewed allowlist. Windows bundle SHA-256 `1072edfb347a961a03a25ceccbc8d2fd2a7782496822e540039f0bf6d307d158` realigned the zero-remote control mirror to primary source.
+
+The mandatory completion cleaner then found one blocker: the late-write settlement continuation released the gate in `finally` but silently caught a physical fault. Repair `cdbca25` records the full exception via the established `TraceError` path and adds a direct nonparallel regression proving diagnostic capture, pre-settlement blocking, post-settlement progress, stable `ReceiptTimedOut`, duplicate rejection, one write, and no Core Start.
+
+Cleaner-repair frozen generation:
+
+- ZIP SHA-256: `2232ea0a0f0106e6d28934060340fc9ff193814e545a0e47f7dd52a216ff90e1`
+- Manifest SHA-256: `45bc13bbed18662947394847e115d008bff5b3b4c07da29780ab9d4a68ae8b48`
+- Snapshot SHA-256: `b4921884d28dbf9235bf2a5aa73ea638620ff45db84b9a5e6f6235a612dbefdd`
+- Payloads: `13`
+- Integrity receipt SHA-256: `5a7ece48f3c27e45e87b07c699d2bbcb59f196660d6133ea036466a08f6d6340`
+- Exact repair patch: 2 paths; apply-check and Git-normalized equivalence passed
+- Cleaner rerun: **PASS**, zero blockers
+- Final cumulative architecture/product/code review: **CLEAR / CLEAR / CLEAR — APPROVE**
+- Completion executor QA/red-team: **passed / passed / passed**, algorithm-boundary test-report SHA-256 `05c310918ca7e80a108afb555045db5ab5c072bb70777d587c51748fd8bf5e8d`
+
+Repair bundle SHA-256 `c0d956df61932c38a9f12a31982dbab11c51f781267264e7fc07e14d5b544b62` realigned the zero-remote control mirror to `cdbca251730e67a6cc1ef7cd4bf70c336f256d74`.
 
 ## Reproduction
 
