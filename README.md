@@ -6,7 +6,7 @@ WinForms 기반 가상 열처리 챔버 제어 시뮬레이터입니다. UI, Cor
 
 ## 구현 상태와 증거 상태
 
-아래 표는 `2026-08-18` Windows authoritative worktree를 기준으로 한다. `Completed`는 source local commit, source-bound 자동 검증, frozen review, 그리고 별도 tracked documentation checkpoint가 있는 상태를 뜻한다.
+아래 표는 `2026-08-19` Windows authoritative worktree를 기준으로 한다. `Completed`는 source local commit, source-bound 자동 검증, frozen review, tracked documentation checkpoint가 모두 있는 상태를 뜻한다.
 
 | 범위 | evidence state | 근거 |
 | --- | --- | --- |
@@ -18,6 +18,8 @@ WinForms 기반 가상 열처리 챔버 제어 시뮬레이터입니다. UI, Cor
 | P3-T3 Core plant simulation 분리 | Completed | `b949e6c`; focused Tick contract 1/1, Debug build 0 warnings/0 errors, full regression 66/66, Windows-byte source review manifest `e7e94da9061b06428e9370c3fdbf1af28a28e2d5f451070d8de0e292039f540f` PASS |
 | P3-T4 WinForms observation composition | Completed | implementation `2e502fa`; current solution baseline `9c3ad95`; P3-only concrete input facade, async non-overlapping observation cycle, close teardown, full regression 80/80, independent source/artifact reviews PASS; user-driven Session 1 smoke에서 observed input `20 → 30 → Apply` 후 `30.00 °C` rendering, Idle 유지, 오류 없음이 보고되었고 UI 종료 후 process absence를 확인 |
 | P4 command lifecycle | P4-T1–P4-T5 Completed; final consistency closure reviewed | reservation/admission `8f32ce7`; output/receipt `254c546`; Start exact fresh ACK `7a874e8`; monotonic hold/awaited ownership `0e2f6d2` + diagnostic repair `cdbca25`; complete Start/Stop/Reset family `8127888`; final Windows Debug 0 warnings/0 errors and full 153/153 at docs HEAD `62a675a`; 12-commit lineage/evidence audit and one-hash cleaner/architect/QA closure cohort PASS; [final P4 closure receipt](docs/verification/p4-final-consistency-closure.md) |
+| P5-T1 confirmed typed communication-loss alarm | Completed | source `8fabaeb` (baseline `ef01e09`); Debug build 0 warnings/0 errors; Abstractions 19/19, Core 40/40, Presentation 26/26, Application 56/56, Simulation 20/20, full 161/161; final frozen-byte code 및 test/spec reviews PASS, manifest `40c624dc133a00c3f88a93531b6a9b23a8215d7901f5cca2d80e91c52108f706`; [P5-T1 receipt](docs/verification/p5-t1-communication-lost.md) |
+| P5-T2–P5-T5 reconnect/synchronization/recovery | Planned | bounded reconnect, connected-but-unsynchronized, fresh-safe-input recovery, compound-fault completion은 P5-T1 증거가 아니다. |
 
 ## 현재 구현된 책임 경계
 
@@ -143,6 +145,17 @@ RequestStartAsync / RequestStopAsync / RequestResetAsync
 - Form/Presenter는 세 command를 모두 awaited one-owner path로 route하고 close에서 admission stop, cancellation, join, single disposal, no-late-render 순서를 유지한다.
 - source anchor와 exact evidence는 [`docs/verification/p4-t5-command-family-completeness.md`](docs/verification/p4-t5-command-family-completeness.md)에 기록한다. 이는 operator smoke, reconnect recovery, real device/equipment 또는 safety evidence가 아니다.
 
+### P5-T1 confirmed typed communication-loss alarm — source completed
+
+P5-T1 source `8fabaeb`는 active safety-monitored read/write 경계에서 확인된 typed `PlcTransportException`만 Core `CommunicationLost`로 보고한다. Core는 pending alarm과 progression hold를 소유하며, Stop 또는 Reset은 이 alarm을 우회하지 못한다.
+
+- `EquipmentCoordinator`는 active `ReadInputsAsync`의 typed failure를 매핑한다. `ConnectAsync`의 typed failure는 non-alarm `TransportFailed`로 남고, `Faulted` read는 reconnect 없이 같은 typed classification에 도달한다.
+- `EquipmentCommandRuntime`은 실제 `WriteOutputsAsync` typed failure와 post-timeout write settlement의 typed failure를 매핑한다. write 전 `TimeProvider`에서 발생한 같은 exception type은 communication alarm으로 분류하지 않는다.
+- late 또는 exact receipt deadline의 typed write failure가 alarm을 올려도 P4 terminal evidence는 약화되지 않는다. `ReceiptTimedOut`, 기존 command ID/kind, closed admission, one write, no retry/replay가 그대로 유지된다.
+- P5-T1에는 reconnect/backoff, socket restoration, connected-but-unsynchronized 상태, fresh-safe input 확인, acknowledgement 기반 recovery가 없다. 따라서 `CommunicationLost`는 자동 연결 복구나 synchronization 완료의 증거가 아니다.
+
+정확한 source scope와 evidence/nonclaim은 [`docs/verification/p5-t1-communication-lost.md`](docs/verification/p5-t1-communication-lost.md)에 기록한다.
+
 ## 실제 PLC port 계약
 
 ```csharp
@@ -166,7 +179,7 @@ public interface IPlcClient : IPlcObservationPort, IPlcOutputPort
 
 ## Core safety policy
 
-`ThermalController`는 상태 전이, DoorOpen/OverTemperature/SensorTimeout interlock, pending alarms, Acknowledge, Recovery, Reset, Recipe 선택, event history를 소유한다. Form, Presenter, Coordinator, Virtual PLC는 Alarm·Recovery·Reset을 독자적으로 판정하지 않는다.
+`ThermalController`는 상태 전이, DoorOpen/OverTemperature/SensorTimeout/CommunicationLost interlock, pending alarms, Acknowledge, Recovery, Reset, Recipe 선택, event history를 소유한다. `EquipmentCoordinator`와 `EquipmentCommandRuntime`은 확인된 typed transport failure를 보고할 뿐 Alarm·Recovery·Reset을 독자적으로 판정하지 않는다. Form, Presenter, Virtual PLC도 그 정책을 소유하지 않는다.
 
 현재 committed baseline의 normal path는 다음과 같다.
 
@@ -184,6 +197,7 @@ P3-T4 source `2e502fa`는 Form/Presenter를 PLC observation runtime에 연결했
 - `docs/demo/images/`와 `docs/demo/SCENARIOS.md`의 캡처는 P0 direct Presenter/Core runtime evidence다.
 - P1/P2/P3 provenance는 각 source receipt에 남아 있다. P4-T1은 [`p4-t1-command-reservation-and-id-admission.md`](docs/verification/p4-t1-command-reservation-and-id-admission.md)에 `8f32ce7`, P4-T2는 [`p4-t2-output-port-and-transport-receipt.md`](docs/verification/p4-t2-output-port-and-transport-receipt.md)에 `254c546`, P4-T3는 [`p4-t3-exact-fresh-start-semantic-ack.md`](docs/verification/p4-t3-exact-fresh-start-semantic-ack.md)에 `7a874e8`, P4-T4는 [`p4-t4-monotonic-lifecycle-holds.md`](docs/verification/p4-t4-monotonic-lifecycle-holds.md)에 `0e2f6d2`와 `cdbca25`, P4-T5는 [`p4-t5-command-family-completeness.md`](docs/verification/p4-t5-command-family-completeness.md)에 `8127888`를 기록한다.
 - P4-T1 full 92/92는 `8f32ce7`, P4-T2 full 96/96는 `254c546`, P4-T3 full 114/114는 `7a874e8`, P4-T4 full 128/128는 `cdbca25`, P4-T5 Core 39/39 + Application 49/49 + Simulation 20/20 + Presentation 26/26 + Abstractions 19/19와 full 153/153는 `8127888`에 bound된다. 어느 결과도 reconnect recovery, real Modbus TCP/PLC/equipment, E-Stop, Safety PLC, hardware safety, 또는 human safety를 뜻하지 않는다.
+- P5-T1 source `8fabaeb`는 Debug 0 warnings/0 errors와 Abstractions 19/19 + Core 40/40 + Presentation 26/26 + Application 56/56 + Simulation 20/20, full 161/161에 bound된다. S08 자동 integration evidence만 추가하며 reconnect/synchronization/recovery, Presentation/UI runtime, Event Log/UI 확장, Modbus/TCP, real PLC/equipment, hardware/human safety, push/release evidence는 아니다.
 
 ## 재현 명령
 
@@ -205,4 +219,5 @@ dotnet test ChamberControlSimulator.slnx --configuration Debug --no-build --no-r
 - [`docs/verification/p4-t3-exact-fresh-start-semantic-ack.md`](docs/verification/p4-t3-exact-fresh-start-semantic-ack.md): P4-T3 source SHA, exact fresh Start ACK evidence, review repair, and P4-T4/T5/UI nonclaims
 - [`docs/verification/p4-t4-monotonic-lifecycle-holds.md`](docs/verification/p4-t4-monotonic-lifecycle-holds.md): P4-T4 source SHA, monotonic deadline/terminal-hold and awaited Start/close evidence, review repair, and later-slice/device/safety nonclaims
 - [`docs/verification/p4-t5-command-family-completeness.md`](docs/verification/p4-t5-command-family-completeness.md): P4-T5 source SHA, complete command-family/global-fence/simulation/Presentation evidence, repaired reviews, and recovery/device/safety nonclaims
+- [`docs/verification/p5-t1-communication-lost.md`](docs/verification/p5-t1-communication-lost.md): P5-T1 source SHA, confirmed typed read/write classification, preserved P4 holds, Windows 161/161/review evidence, 그리고 P5-T2+·UI·device·release nonclaims
 - local ignored `docs/roadmap/STATUS.md`: 다음 작업 세션용 current progress tracker. tracked verification receipt를 대체하지 않는다.
