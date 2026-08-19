@@ -212,7 +212,7 @@ public sealed class VirtualPlcClient : IPlcClient
 
 		if (ConnectionState != PlcConnectionState.Connected)
 		{
-			throw new InvalidOperationException("Virtual PLC transport is not connected.");
+			throw new PlcTransportException("Virtual PLC transport is not connected.");
 		}
 	}
 

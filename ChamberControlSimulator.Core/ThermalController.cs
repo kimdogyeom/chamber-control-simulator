@@ -127,6 +127,17 @@ public sealed class ThermalController
 		TryMarkRecoveryReady();
 	}
 
+
+	public void ReportCommunicationLost()
+	{
+		if (!IsSafetyMonitored())
+		{
+			return;
+		}
+
+		RaiseAlarm(AlarmKind.CommunicationLost);
+	}
+
 	public void ApplyObservation(
 		ThermalObservation observation,
 		TimeSpan elapsed)
@@ -399,6 +410,7 @@ public sealed class ThermalController
 		AlarmKind.DoorOpen => !_doorOpen,
 		AlarmKind.OverTemperature => _currentTemperature < _recipe.SafetyTemperature,
 		AlarmKind.SensorTimeout => !_feedbackPaused && _hasFreshFeedbackTick,
+		AlarmKind.CommunicationLost => false,
 		_ => false
 	};
 	private void TransitionTo(ControllerState state)

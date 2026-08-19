@@ -42,7 +42,8 @@ public enum AlarmKind
 {
 	DoorOpen,
 	OverTemperature,
-	SensorTimeout
+	SensorTimeout,
+	CommunicationLost
 }
 
 public sealed record Recipe

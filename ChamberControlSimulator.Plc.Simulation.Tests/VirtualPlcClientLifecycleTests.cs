@@ -6,11 +6,11 @@ namespace ChamberControlSimulator.Plc.Simulation.Tests;
 [TestClass]
 public sealed class VirtualPlcClientLifecycleTests
 {
-	// 목적: forced transport disconnect가 I/O를 막고 explicit reconnect 후에만 transport를 복구하는지 검증한다.
-	// 예상 결과: fault 뒤 read는 실패하고 ConnectionState는 Faulted이며 ConnectAsync 뒤에만 Connected가 된다.
-	// 완료 조건: simulation fault가 field state reset이나 암묵적 reconnect를 만들지 않는 상태로 test가 통과한다.
+	// 목적: forced transport disconnect 뒤 read와 write가 동일한 transport-specific I/O 계약을 따르는지 검증한다.
+	// 예상 결과: read와 write는 PlcTransportException으로 실패하고 ConnectionState는 Faulted로 유지된다.
+	// 완료 조건: 두 I/O 경계가 typed failure를 반환한 뒤 explicit reconnect에서만 Connected가 된다.
 	[TestMethod]
-	public async Task ForceTransportDisconnect_RejectsIoUntilExplicitReconnect()
+	public async Task ForceTransportDisconnect_RejectsReadAndWriteWithTransportExceptionUntilReconnect()
 	{
 		var client = new VirtualPlcClient(VirtualPlcOptions.Illustrative);
 		IPlcClient port = client;
@@ -18,8 +18,13 @@ public sealed class VirtualPlcClientLifecycleTests
 
 		client.SimulationControl.ForceTransportDisconnect();
 
-		await Assert.ThrowsExactlyAsync<InvalidOperationException>(
+		await Assert.ThrowsExactlyAsync<PlcTransportException>(
 			async () => await port.ReadInputsAsync(CancellationToken.None));
+		await Assert.ThrowsExactlyAsync<PlcTransportException>(
+			async () => await port.WriteOutputsAsync(
+				new PlcOutputCommand(1, PlcCommandKind.Stop),
+				CancellationToken.None));
+
 		Assert.AreEqual(PlcConnectionState.Faulted, port.ConnectionState);
 
 		await port.ConnectAsync(CancellationToken.None);
@@ -82,7 +87,7 @@ public sealed class VirtualPlcClientLifecycleTests
 	}
 
 	// 목적: 연결 전 I/O를 거부하면서 transport state를 변경하지 않는지 검증한다.
-	// 예상 결과: ReadInputsAsync는 InvalidOperationException을 던지고 ConnectionState는 Disconnected로 남는다.
+	// 예상 결과: ReadInputsAsync는 PlcTransportException을 던지고 ConnectionState는 Disconnected로 남는다.
 	// 완료 조건: 연결 lifecycle를 우회한 PLC read가 성공 또는 암묵적 연결로 바뀌지 않는 상태로 test가 통과한다.
 	[TestMethod]
 	public async Task ReadInputsAsync_BeforeConnect_ThrowsWithoutChangingConnectionState()
@@ -90,7 +95,7 @@ public sealed class VirtualPlcClientLifecycleTests
 		var client = new VirtualPlcClient(VirtualPlcOptions.Illustrative);
 		IPlcClient port = client;
 
-		await Assert.ThrowsExactlyAsync<InvalidOperationException>(
+		await Assert.ThrowsExactlyAsync<PlcTransportException>(
 			async () => await port.ReadInputsAsync(CancellationToken.None));
 
 		Assert.AreEqual(PlcConnectionState.Disconnected, port.ConnectionState);

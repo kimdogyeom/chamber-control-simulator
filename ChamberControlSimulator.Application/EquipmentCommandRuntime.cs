@@ -12,6 +12,7 @@ public sealed class EquipmentCommandRuntime : IAsyncDisposable
 	private readonly EquipmentCoordinator _observationCoordinator;
 	private readonly EquipmentCommandCoordinator _commandCoordinator;
 	private readonly TimeProvider _timeProvider;
+	private readonly ThermalController _controller;
 	private EquipmentCommandLifecycleState _currentState = new(
 		EquipmentCommandLifecycleDisposition.NoCommand,
 		null,
@@ -34,6 +35,7 @@ public sealed class EquipmentCommandRuntime : IAsyncDisposable
 		TimeProvider timeProvider)
 	{
 		ArgumentNullException.ThrowIfNull(controller);
+		_controller = controller;
 		_observationCoordinator = new EquipmentCoordinator(
 			controller,
 			observationPort ?? throw new ArgumentNullException(nameof(observationPort)));
@@ -173,7 +175,22 @@ public sealed class EquipmentCommandRuntime : IAsyncDisposable
 			}
 
 			deadlineCancellation.Cancel();
-			var transport = await writeTask.ConfigureAwait(false);
+			EquipmentCommandTransportResult transport;
+			try
+			{
+				transport = await writeTask.ConfigureAwait(false);
+			}
+			catch (PlcTransportException)
+			{
+				_controller.ReportCommunicationLost();
+				if (HasReceiptDeadlineElapsed())
+				{
+					SetTerminalState(EquipmentCommandLifecycleDisposition.ReceiptTimedOut);
+					return new EquipmentCommandRequestResult(CurrentState.Disposition, _pendingCommandId);
+				}
+
+				throw;
+			}
 			if (HasReceiptDeadlineElapsed())
 			{
 				SetTerminalState(EquipmentCommandLifecycleDisposition.ReceiptTimedOut);
@@ -199,7 +216,7 @@ public sealed class EquipmentCommandRuntime : IAsyncDisposable
 
 			return new EquipmentCommandRequestResult(CurrentState.Disposition, _pendingCommandId);
 		}
-		catch
+		catch (Exception)
 		{
 			if (_pendingCommandId is not null)
 			{
@@ -344,6 +361,11 @@ public sealed class EquipmentCommandRuntime : IAsyncDisposable
 		}
 		catch (Exception exception)
 		{
+			if (exception is PlcTransportException)
+			{
+				_controller.ReportCommunicationLost();
+			}
+
 			System.Diagnostics.Trace.TraceError(exception.ToString());
 		}
 		finally

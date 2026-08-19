@@ -210,6 +210,77 @@ public sealed class EquipmentCommandRuntimeTests
 		Assert.AreEqual(1, ports.WriteCount);
 	}
 
+	// 목적: Heating 중 Stop write의 typed transport failure가 P4 hold와 Core 통신 알람을 함께 유지하는지 검증한다.
+	// 예상 결과: 동일한 PlcTransportException이 전달되고 runtime은 ReconciliationRequired, Core는 CommunicationLost 알람이다.
+	// 완료 조건: command ID 1의 단일 write 뒤 retry, replay, release, 또는 Core Stop 이벤트가 발생하지 않는다.
+	[TestMethod]
+	public async Task RequestStopAsync_TransportFailure_RaisesCommunicationLostAndPreservesReconciliationHold()
+	{
+		var controller = CreateController();
+		controller.Start();
+		var ports = new ControlledPlcPorts();
+		ports.EnqueueSnapshot(Snapshot(sequence: 1));
+		var transportException = new PlcTransportException("controlled write transport failure");
+		ports.WriteHandler = (_, _) => throw transportException;
+		await using var runtime = new EquipmentCommandRuntime(controller, ports, ports, TimeProvider.System);
+		await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+
+		var thrown = await Assert.ThrowsExactlyAsync<PlcTransportException>(
+			() => runtime.RequestStopAsync(CancellationToken.None));
+
+		Assert.AreSame(transportException, thrown);
+		Assert.AreEqual(ControllerState.Alarm, controller.Snapshot.State);
+		Assert.AreEqual(AlarmKind.CommunicationLost, controller.Snapshot.ActiveAlarm);
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.ReconciliationRequired, runtime.CurrentState.Disposition);
+		Assert.AreEqual(1L, runtime.CurrentState.CommandId);
+		Assert.AreEqual(1, ports.WriteCount);
+		Assert.IsNotNull(ports.LastCommand);
+		Assert.AreEqual(1L, ports.LastCommand.CommandId);
+		Assert.AreEqual(PlcCommandKind.Stop, ports.LastCommand.Kind);
+		Assert.IsFalse(controller.EventHistory.Any(entry => entry.Event == "Stop"));
+
+		var blockedRetry = await runtime.RequestStopAsync(CancellationToken.None);
+
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.AdmissionRejected, blockedRetry.Disposition);
+		Assert.IsNull(blockedRetry.CommandId);
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.ReconciliationRequired, runtime.CurrentState.Disposition);
+		Assert.AreEqual(1L, runtime.CurrentState.CommandId);
+		Assert.AreEqual(1, ports.WriteCount);
+		Assert.IsFalse(controller.EventHistory.Any(entry => entry.Event == "Stop"));
+	}
+
+	// 목적: Heating 중 write 이전 TimeProvider의 typed transport fault가 통신 손실로 잘못 분류되지 않는지 검증한다.
+	// 예상 결과: 동일한 PlcTransportException과 P4 ReconciliationRequired hold를 유지하지만 Core는 Heating이고 write는 0회다.
+	// 완료 조건: non-write fault가 CommunicationLost를 만들지 않고 command ID/kind와 closed admission을 유지한다.
+	[TestMethod]
+	public async Task RequestStopAsync_TimeProviderTransportFailureBeforeWrite_DoesNotRaiseCommunicationLost()
+	{
+		var controller = CreateController();
+		controller.Start();
+		var ports = new ControlledPlcPorts();
+		ports.EnqueueSnapshot(Snapshot(sequence: 1));
+		var transportException = new PlcTransportException("controlled TimeProvider transport failure");
+		var timeProvider = new ThrowingTimestampTimeProvider(transportException);
+		await using var runtime = new EquipmentCommandRuntime(controller, ports, ports, timeProvider);
+		await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+
+		var thrown = await Assert.ThrowsExactlyAsync<PlcTransportException>(
+			() => runtime.RequestStopAsync(CancellationToken.None));
+		var blockedRetry = await runtime.RequestStopAsync(CancellationToken.None);
+
+		Assert.AreSame(transportException, thrown);
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.ReconciliationRequired, runtime.CurrentState.Disposition);
+		Assert.AreEqual(1L, runtime.CurrentState.CommandId);
+		Assert.AreEqual(ControllerCommandKind.Stop, runtime.CurrentState.Kind);
+		Assert.AreEqual(ControllerState.Heating, controller.Snapshot.State);
+		Assert.IsNull(controller.Snapshot.ActiveAlarm);
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.AdmissionRejected, blockedRetry.Disposition);
+		Assert.IsNull(blockedRetry.CommandId);
+		Assert.AreEqual(0, ports.WriteCount);
+		Assert.IsNull(ports.LastCommand);
+		Assert.IsFalse(controller.EventHistory.Any(entry => entry.Event == "Stop"));
+	}
+
 	// 목적: in-flight output cancellation 뒤 exact ACK가 와도 terminal reconciliation hold를 벗어나지 않는지 검증한다.
 	// 예상 결과: request는 cancellation을 전달하고 later exact ACK cycle은 ReconciliationRequired, Core Idle/event-empty다.
 	// 완료 조건: caller cancellation이 uncertain delivery를 reservation release나 retroactive Start success로 바꾸지 않는다.
@@ -405,6 +476,52 @@ public sealed class EquipmentCommandRuntimeTests
 		Assert.AreEqual(1, ports.WriteCount);
 	}
 
+	// 목적: Heating Stop write의 receipt timeout 뒤 늦은 typed 전송 실패가 Core 통신 상실로 보고되는지 검증한다.
+	// 예상 결과: late PlcTransportException 뒤에도 ReceiptTimedOut과 command ID 1을 유지하며 CommunicationLost 알람에 진입한다.
+	// 완료 조건: write 1회, 재시도/Stop 이벤트/예약 해제 없이 admission이 닫힌 상태로 유지된다.
+	[TestMethod]
+	public async Task RequestStopAsync_LateTransportFailureAfterReceiptTimeout_RaisesCommunicationLostAndPreservesHold()
+	{
+		var controller = CreateController();
+		controller.Start();
+		var ports = new ControlledPlcPorts();
+		var timeProvider = new ManualTimeProvider();
+		ports.EnqueueSnapshot(Snapshot(sequence: 1));
+		var writeCompletion = new TaskCompletionSource<PlcWriteReceipt>(TaskCreationOptions.RunContinuationsAsynchronously);
+		ports.WriteHandler = (_, _) => writeCompletion.Task;
+		await using var runtime = new EquipmentCommandRuntime(controller, ports, ports, timeProvider);
+		await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		var requestTask = runtime.RequestStopAsync(CancellationToken.None);
+		await ports.WriteStarted.Task;
+		timeProvider.Advance(TimeSpan.FromSeconds(3));
+		var timedOut = await requestTask;
+		ports.EnqueueSnapshot(Snapshot(sequence: 2));
+		var readCount = ports.ReadCount;
+		var cycleTask = runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		await Task.Yield();
+
+		Assert.AreEqual(readCount, ports.ReadCount);
+		writeCompletion.SetException(new PlcTransportException("controlled late write transport failure"));
+		var lateCycle = await cycleTask;
+		var blockedRetry = await runtime.RequestStopAsync(CancellationToken.None);
+
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.ReceiptTimedOut, timedOut.Disposition);
+		Assert.AreEqual(1L, timedOut.CommandId);
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.ReceiptTimedOut, lateCycle.CommandDisposition);
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.ReceiptTimedOut, runtime.CurrentState.Disposition);
+		Assert.AreEqual(1L, runtime.CurrentState.CommandId);
+		Assert.AreEqual(ControllerCommandKind.Stop, runtime.CurrentState.Kind);
+		Assert.AreEqual(ControllerState.Alarm, controller.Snapshot.State);
+		Assert.AreEqual(AlarmKind.CommunicationLost, controller.Snapshot.ActiveAlarm);
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.AdmissionRejected, blockedRetry.Disposition);
+		Assert.IsNull(blockedRetry.CommandId);
+		Assert.AreEqual(1, ports.WriteCount);
+		Assert.IsNotNull(ports.LastCommand);
+		Assert.AreEqual(1L, ports.LastCommand.CommandId);
+		Assert.AreEqual(PlcCommandKind.Stop, ports.LastCommand.Kind);
+		Assert.IsFalse(controller.EventHistory.Any(entry => entry.Event == "Stop"));
+	}
+
 	// 목적: semantic ACK deadline이 admission/write start가 아니라 matching Written receipt 뒤에만 시작되는지 monotonic fake time으로 검증한다.
 	// 예상 결과: write invocation 후 총 5초가 지나도 Written 뒤 3초 전에는 대기하고 정확히 3초의 later exact ACK는 AcknowledgementTimedOut다.
 	// 완료 조건: receipt와 ACK deadline epoch가 분리되고 exact boundary가 fail-closed다.
@@ -570,6 +687,59 @@ public sealed class EquipmentCommandRuntimeTests
 		Assert.AreEqual(EquipmentCommandLifecycleDisposition.ReceiptTimedOut, result.Disposition);
 		Assert.IsNull(runtime.CurrentState.AcknowledgementStartedTimestamp);
 		Assert.AreEqual(ControllerState.Idle, controller.Snapshot.State);
+	}
+
+	// 목적: exact receipt deadline에 이미 settle된 Stop typed write fault가 timeout 우선순위와 통신 손실을 함께 유지하는지 검증한다.
+	// 예상 결과: request는 원래 ID/kind의 ReceiptTimedOut이고 Core는 CommunicationLost 알람이며 admission은 닫힌다.
+	// 완료 조건: write 1회 뒤 Stop event, retry, replay, reservation release 없이 P4 timeout hold가 유지된다.
+	[TestMethod]
+	public async Task RequestStopAsync_TransportFailureAtExactReceiptDeadline_TimeoutWinsAndRaisesCommunicationLost()
+	{
+		var controller = CreateController();
+		controller.Start();
+		var ports = new ControlledPlcPorts();
+		var timeProvider = new ManualTimeProvider();
+		ports.EnqueueSnapshot(Snapshot(sequence: 1));
+		var writeCompletion = new TaskCompletionSource<PlcWriteReceipt>();
+		var transportException = new PlcTransportException("controlled exact-deadline write transport failure");
+		using var transportFailureTimer = timeProvider.CreateTimer(
+			_ => writeCompletion.SetException(transportException),
+			null,
+			TimeSpan.FromSeconds(3),
+			Timeout.InfiniteTimeSpan);
+		ports.WriteHandler = (_, _) => writeCompletion.Task;
+		await using var runtime = new EquipmentCommandRuntime(controller, ports, ports, timeProvider);
+		await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		var requestTask = runtime.RequestStopAsync(CancellationToken.None);
+		await ports.WriteStarted.Task;
+
+		timeProvider.Advance(TimeSpan.FromSeconds(3));
+		EquipmentCommandRequestResult? timedOut = null;
+		try
+		{
+			timedOut = await requestTask;
+		}
+		catch (Exception exception)
+		{
+			Assert.Fail($"Expected ReceiptTimedOut, but {exception.GetType().Name} was thrown with {runtime.CurrentState.Disposition}.");
+		}
+		var blockedRetry = await runtime.RequestStopAsync(CancellationToken.None);
+
+		Assert.IsNotNull(timedOut);
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.ReceiptTimedOut, timedOut.Disposition);
+		Assert.AreEqual(1L, timedOut.CommandId);
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.ReceiptTimedOut, runtime.CurrentState.Disposition);
+		Assert.AreEqual(1L, runtime.CurrentState.CommandId);
+		Assert.AreEqual(ControllerCommandKind.Stop, runtime.CurrentState.Kind);
+		Assert.AreEqual(ControllerState.Alarm, controller.Snapshot.State);
+		Assert.AreEqual(AlarmKind.CommunicationLost, controller.Snapshot.ActiveAlarm);
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.AdmissionRejected, blockedRetry.Disposition);
+		Assert.IsNull(blockedRetry.CommandId);
+		Assert.AreEqual(1, ports.WriteCount);
+		Assert.IsNotNull(ports.LastCommand);
+		Assert.AreEqual(1L, ports.LastCommand.CommandId);
+		Assert.AreEqual(PlcCommandKind.Stop, ports.LastCommand.Kind);
+		Assert.IsFalse(controller.EventHistory.Any(entry => entry.Event == "Stop"));
 	}
 
 	// 목적: deadline callback 관찰이 늦더라도 monotonic elapsed가 3초 이상인 late receipt를 success로 수락하지 않는지 검증한다.
@@ -899,6 +1069,15 @@ public sealed class EquipmentCommandRuntimeTests
 			acknowledgedCommandId,
 			sequence);
 
+	private sealed class ThrowingTimestampTimeProvider : TimeProvider
+	{
+		private readonly Exception _exception;
+
+		public ThrowingTimestampTimeProvider(Exception exception) => _exception = exception;
+
+		public override long GetTimestamp() => throw _exception;
+	}
+
 	private sealed class RecordingTraceListener : System.Diagnostics.TraceListener
 	{
 		private readonly System.Text.StringBuilder _messages = new();
@@ -959,7 +1138,7 @@ public sealed class EquipmentCommandRuntimeTests
 				if (_failNextRead)
 				{
 					_failNextRead = false;
-					throw new InvalidOperationException("controlled transport failure");
+					throw new PlcTransportException("controlled transport failure");
 				}
 
 				if (_snapshots.Count == 0)

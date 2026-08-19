@@ -43,47 +43,58 @@ public sealed class EquipmentCoordinator : IAsyncDisposable
 
 		ThrowIfDisposed();
 
-		try
+		if (_plcClient.ConnectionState == PlcConnectionState.Disconnected)
 		{
-			if (_plcClient.ConnectionState == PlcConnectionState.Disconnected)
+			try
 			{
 				await _plcClient.ConnectAsync(cancellationToken);
 			}
-
-			if (_plcClient.ConnectionState != PlcConnectionState.Connected)
+			catch (PlcTransportException)
 			{
 				return TransportFailed();
 			}
+		}
 
-			var input = await _plcClient.ReadInputsAsync(cancellationToken);
-			if (_lastAcceptedObservationSequence is not null &&
-				input.ObservationSequence <= _lastAcceptedObservationSequence.Value)
-			{
-				return new EquipmentCycleResult(
-					EquipmentCycleDisposition.StaleObservation,
-					_controller.Snapshot,
-					_plcClient.ConnectionState,
-					input);
-			}
+		if (_plcClient.ConnectionState != PlcConnectionState.Connected &&
+			_plcClient.ConnectionState != PlcConnectionState.Faulted)
+		{
+			return TransportFailed();
+		}
 
-			_lastAcceptedObservationSequence = input.ObservationSequence;
-			_controller.ApplyObservation(
-				new ThermalObservation(
-					isDoorOpen: !input.DoorClosed,
-					sensorHealthy: input.SensorHealthy,
-					currentTemperature: input.CurrentTemperature),
-				elapsed);
+		PlcInputSnapshot input;
+		try
+		{
+			input = await _plcClient.ReadInputsAsync(cancellationToken);
+		}
+		catch (PlcTransportException)
+		{
+			_controller.ReportCommunicationLost();
+			return TransportFailed();
+		}
 
+		if (_lastAcceptedObservationSequence is not null &&
+			input.ObservationSequence <= _lastAcceptedObservationSequence.Value)
+		{
 			return new EquipmentCycleResult(
-				EquipmentCycleDisposition.Completed,
+				EquipmentCycleDisposition.StaleObservation,
 				_controller.Snapshot,
 				_plcClient.ConnectionState,
 				input);
 		}
-		catch (InvalidOperationException)
-		{
-			return TransportFailed();
-		}
+
+		_lastAcceptedObservationSequence = input.ObservationSequence;
+		_controller.ApplyObservation(
+			new ThermalObservation(
+				isDoorOpen: !input.DoorClosed,
+				sensorHealthy: input.SensorHealthy,
+				currentTemperature: input.CurrentTemperature),
+			elapsed);
+
+		return new EquipmentCycleResult(
+			EquipmentCycleDisposition.Completed,
+			_controller.Snapshot,
+			_plcClient.ConnectionState,
+			input);
 	}
 
 	public async ValueTask DisposeAsync()

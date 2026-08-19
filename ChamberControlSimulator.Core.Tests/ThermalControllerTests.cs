@@ -409,4 +409,36 @@ public sealed class ThermalControllerTests
 			.ToList();
 		Assert.HasCount(1, SensorTimeoutEvents, "SensorTimeout Alarm 이벤트는 최초 1개여야 한다.");
 	}
+
+	// 목적: 통신 손실 보고가 유휴 상태를 변경하지 않고 안전 감시 중에는 지속 알람을 발생시키는지 검증한다.
+	// 예상 결과: 유휴 컨트롤러에는 이벤트가 없고 가열 중 컨트롤러는 CommunicationLost 알람에 머문다.
+	// 완료 조건: 확인, Stop, Reset 후에도 알람 상태와 Reset 불가 조건이 유지된다.
+	[TestMethod]
+	public void ReportCommunicationLost_OnlySafetyMonitoredControllerRaisesNonBypassableAlarm()
+	{
+		var idleController = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
+		var heatingController = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
+		heatingController.Start();
+
+		idleController.ReportCommunicationLost();
+		heatingController.ReportCommunicationLost();
+
+		Assert.AreEqual(ControllerState.Idle, idleController.Snapshot.State);
+		Assert.IsNull(idleController.Snapshot.ActiveAlarm);
+		Assert.IsEmpty(idleController.EventHistory);
+		Assert.AreEqual(ControllerState.Alarm, heatingController.Snapshot.State);
+		Assert.AreEqual(AlarmKind.CommunicationLost, heatingController.Snapshot.ActiveAlarm);
+		Assert.IsFalse(heatingController.Snapshot.CanReset);
+
+		var eventCountBeforeBypassAttempts = heatingController.EventHistory.Count;
+		heatingController.AcknowledgeAlarm();
+		heatingController.Stop();
+		heatingController.Reset();
+
+		Assert.AreEqual(ControllerState.Alarm, heatingController.Snapshot.State);
+		Assert.AreEqual(AlarmKind.CommunicationLost, heatingController.Snapshot.ActiveAlarm);
+		Assert.IsFalse(heatingController.Snapshot.CanReset);
+		Assert.HasCount(eventCountBeforeBypassAttempts + 1, heatingController.EventHistory);
+		Assert.AreEqual("Acknowledgement", heatingController.EventHistory[^1].Event);
+	}
 }
