@@ -32,17 +32,20 @@ public sealed class EquipmentCommandRuntime : IAsyncDisposable
 		ThermalController controller,
 		IPlcObservationPort observationPort,
 		IPlcOutputPort outputPort,
-		TimeProvider timeProvider)
+		TimeProvider timeProvider,
+		ReconnectPolicy? reconnectPolicy = null)
 	{
 		ArgumentNullException.ThrowIfNull(controller);
 		_controller = controller;
+		_timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
 		_observationCoordinator = new EquipmentCoordinator(
 			controller,
-			observationPort ?? throw new ArgumentNullException(nameof(observationPort)));
+			observationPort ?? throw new ArgumentNullException(nameof(observationPort)),
+			_timeProvider,
+			reconnectPolicy ?? ReconnectPolicy.Conservative);
 		_commandCoordinator = new EquipmentCommandCoordinator(
 			controller,
 			outputPort ?? throw new ArgumentNullException(nameof(outputPort)));
-		_timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
 	}
 
 	public EquipmentCommandLifecycleState CurrentState => Volatile.Read(ref _currentState);
@@ -183,6 +186,7 @@ public sealed class EquipmentCommandRuntime : IAsyncDisposable
 			catch (PlcTransportException)
 			{
 				_controller.ReportCommunicationLost();
+				_observationCoordinator.InvalidateSynchronizationAfterOutputTransportFailure();
 				if (HasReceiptDeadlineElapsed())
 				{
 					SetTerminalState(EquipmentCommandLifecycleDisposition.ReceiptTimedOut);
@@ -364,6 +368,7 @@ public sealed class EquipmentCommandRuntime : IAsyncDisposable
 			if (exception is PlcTransportException)
 			{
 				_controller.ReportCommunicationLost();
+				_observationCoordinator.InvalidateSynchronizationAfterOutputTransportFailure();
 			}
 
 			System.Diagnostics.Trace.TraceError(exception.ToString());

@@ -9,6 +9,95 @@ namespace ChamberControlSimulator.Application.Tests;
 [TestClass]
 public sealed class EquipmentCommandRuntimeTests
 {
+	// 목적: confirmed output write fault 뒤 reconnect clock만 실패해도 원래 typed write 경계와 P4 hold가 가려지지 않는지 검증한다.
+	// 예상 결과: 원래 PlcTransportException이 그대로 전파되고 Core CommunicationLost와 ReconciliationRequired ID 1이 유지된다.
+	// 완료 조건: write 1회 뒤 retry/replay/release/Stop 이벤트 없이 secondary TimeProvider failure가 새 알람이나 예외를 대체하지 않는다.
+	[TestMethod]
+	public async Task RequestStopAsync_OutputFaultWithReconnectClockFailure_PreservesTypedFaultAndHold()
+	{
+		var controller = CreateController();
+		controller.Start();
+		var ports = new ControlledPlcPorts();
+		ports.EnqueueSnapshot(Snapshot(sequence: 1));
+		var transportException = new PlcTransportException("controlled output transport failure");
+		ports.WriteHandler = (_, _) => throw transportException;
+		var timeProvider = new ThrowOnSecondTimestampTimeProvider(
+			new InvalidOperationException("controlled reconnect clock failure"));
+		await using var runtime = new EquipmentCommandRuntime(
+			controller,
+			ports,
+			ports,
+			timeProvider,
+			ReconnectPolicy.Conservative);
+		await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+
+		var thrown = await Assert.ThrowsExactlyAsync<PlcTransportException>(
+			() => runtime.RequestStopAsync(CancellationToken.None));
+		var blockedRetry = await runtime.RequestStopAsync(CancellationToken.None);
+
+		Assert.AreSame(transportException, thrown);
+		Assert.AreEqual(ControllerState.Alarm, controller.Snapshot.State);
+		Assert.AreEqual(AlarmKind.CommunicationLost, controller.Snapshot.ActiveAlarm);
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.ReconciliationRequired, runtime.CurrentState.Disposition);
+		Assert.AreEqual(1L, runtime.CurrentState.CommandId);
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.AdmissionRejected, blockedRetry.Disposition);
+		Assert.AreEqual(1, ports.WriteCount);
+		Assert.IsFalse(controller.EventHistory.Any(entry => entry.Event == "Stop"));
+	}
+	// 목적: distinct output port의 typed write fault가 실제 Connected observation port에 reconnect를 추론하지 않고 sync만 무효화하는지 검증한다.
+	// 예상 결과: 249ms 동안 connect 추가 호출이 없고 같은 fake clock의 250ms 경계 뒤 실제 disconnect일 때만 connect한다.
+	// 완료 조건: 원래 command ID 1/ReconciliationRequired hold와 write 1회가 유지되며 retry, replay, admission, ACK completion이 없다.
+	[TestMethod]
+	public async Task RequestStopAsync_DistinctOutputFault_InvalidatesSynchronizationWithoutInventedObservationReconnect()
+	{
+		var controller = CreateController();
+		controller.Start();
+		var observationPort = new ControlledPlcPorts();
+		observationPort.EnqueueSnapshot(Snapshot(sequence: 1));
+		var transportException = new PlcTransportException("controlled distinct output transport failure");
+		var outputPort = new TransportFailingOutputPort(transportException);
+		var timeProvider = new ManualTimeProvider();
+		await using var runtime = new EquipmentCommandRuntime(
+			controller,
+			observationPort,
+			outputPort,
+			timeProvider,
+			ReconnectPolicy.Conservative);
+		await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+
+		var thrown = await Assert.ThrowsExactlyAsync<PlcTransportException>(
+			() => runtime.RequestStopAsync(CancellationToken.None));
+		timeProvider.Advance(TimeSpan.FromMilliseconds(249));
+		observationPort.EnqueueSnapshot(Snapshot(sequence: 1));
+		var staleWhileConnected = await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		var connectedConnectCount = observationPort.ConnectCount;
+		observationPort.DisconnectForTest();
+		observationPort.EnqueueSnapshot(Snapshot(sequence: 2));
+		var beforeBoundary = await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		var beforeBoundaryConnectCount = observationPort.ConnectCount;
+		timeProvider.Advance(TimeSpan.FromMilliseconds(1));
+		observationPort.EnqueueSnapshot(Snapshot(sequence: 3));
+		var atBoundary = await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		var blockedRetry = await runtime.RequestStopAsync(CancellationToken.None);
+
+		Assert.AreSame(transportException, thrown);
+		Assert.AreEqual(EquipmentCycleDisposition.StaleObservation, staleWhileConnected.ObservationResult.Disposition);
+		Assert.AreEqual(ConnectionSynchronizationState.WaitingForReconnect, staleWhileConnected.ObservationResult.SynchronizationState);
+		Assert.AreEqual(1, connectedConnectCount);
+		Assert.AreEqual(EquipmentCycleDisposition.TransportFailed, beforeBoundary.ObservationResult.Disposition);
+		Assert.AreEqual(1, beforeBoundaryConnectCount);
+		Assert.AreEqual(EquipmentCycleDisposition.Completed, atBoundary.ObservationResult.Disposition);
+		Assert.AreEqual(2, observationPort.ConnectCount);
+		Assert.AreEqual(3, observationPort.ReadCount);
+		Assert.AreEqual(1, outputPort.WriteCount);
+		Assert.IsNotNull(outputPort.LastCommand);
+		Assert.AreEqual(1L, outputPort.LastCommand.CommandId);
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.ReconciliationRequired, runtime.CurrentState.Disposition);
+		Assert.AreEqual(1L, runtime.CurrentState.CommandId);
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.AdmissionRejected, blockedRetry.Disposition);
+		Assert.IsNull(blockedRetry.CommandId);
+		Assert.IsFalse(controller.EventHistory.Any(entry => entry.Event == "Stop"));
+	}
 	// 목적: latest fresh Completed P3 baseline 없이 Start request가 reservation ID나 output write를 만들지 않는지 검증한다.
 	// 예상 결과: BaselineRequired, null command ID, zero write이며 Core는 Idle/event-empty다.
 	// 완료 조건: P4 admission/dispatch가 accepted fresh observation baseline 뒤에서만 열린다.
@@ -323,7 +412,7 @@ public sealed class EquipmentCommandRuntimeTests
 		var publicMethods = typeof(EquipmentCommandRuntime).GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly);
 
 		CollectionAssert.AreEqual(new[] { typeof(ThermalController), typeof(IPlcObservationPort) }, p3Parameters);
-		CollectionAssert.AreEqual(new[] { typeof(ThermalController), typeof(IPlcObservationPort), typeof(IPlcOutputPort), typeof(TimeProvider) }, runtimeParameters);
+		CollectionAssert.AreEqual(new[] { typeof(ThermalController), typeof(IPlcObservationPort), typeof(IPlcOutputPort), typeof(TimeProvider), typeof(ReconnectPolicy) }, runtimeParameters);
 		CollectionAssert.AreEquivalent(
 			new[] { "CycleAsync", "DisposeAsync", "get_CurrentState", "RequestResetAsync", "RequestStartAsync", "RequestStopAsync", "StopAdmission" },
 			publicMethods.Select(method => method.Name).ToArray());
@@ -476,9 +565,9 @@ public sealed class EquipmentCommandRuntimeTests
 		Assert.AreEqual(1, ports.WriteCount);
 	}
 
-	// 목적: Heating Stop write의 receipt timeout 뒤 늦은 typed 전송 실패가 Core 통신 상실로 보고되는지 검증한다.
-	// 예상 결과: late PlcTransportException 뒤에도 ReceiptTimedOut과 command ID 1을 유지하며 CommunicationLost 알람에 진입한다.
-	// 완료 조건: write 1회, 재시도/Stop 이벤트/예약 해제 없이 admission이 닫힌 상태로 유지된다.
+	// 목적: Heating Stop write의 receipt timeout 뒤 늦은 typed 전송 실패가 Core 통신 상실과 observation sync 무효화를 함께 만드는지 검증한다.
+	// 예상 결과: late PlcTransportException 뒤 queued stale read는 WaitingForReconnect이고 ReceiptTimedOut/command ID 1은 유지된다.
+	// 완료 조건: observation reconnect나 output replay 없이 connect/write 각 1회, Stop 이벤트/예약 해제 없이 admission이 닫혀 있다.
 	[TestMethod]
 	public async Task RequestStopAsync_LateTransportFailureAfterReceiptTimeout_RaisesCommunicationLostAndPreservesHold()
 	{
@@ -495,7 +584,7 @@ public sealed class EquipmentCommandRuntimeTests
 		await ports.WriteStarted.Task;
 		timeProvider.Advance(TimeSpan.FromSeconds(3));
 		var timedOut = await requestTask;
-		ports.EnqueueSnapshot(Snapshot(sequence: 2));
+		ports.EnqueueSnapshot(Snapshot(sequence: 1));
 		var readCount = ports.ReadCount;
 		var cycleTask = runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
 		await Task.Yield();
@@ -508,6 +597,9 @@ public sealed class EquipmentCommandRuntimeTests
 		Assert.AreEqual(EquipmentCommandLifecycleDisposition.ReceiptTimedOut, timedOut.Disposition);
 		Assert.AreEqual(1L, timedOut.CommandId);
 		Assert.AreEqual(EquipmentCommandLifecycleDisposition.ReceiptTimedOut, lateCycle.CommandDisposition);
+		Assert.AreEqual(EquipmentCycleDisposition.StaleObservation, lateCycle.ObservationResult.Disposition);
+		Assert.AreEqual(ConnectionSynchronizationState.WaitingForReconnect, lateCycle.ObservationResult.SynchronizationState);
+		Assert.AreEqual(1, ports.ConnectCount);
 		Assert.AreEqual(EquipmentCommandLifecycleDisposition.ReceiptTimedOut, runtime.CurrentState.Disposition);
 		Assert.AreEqual(1L, runtime.CurrentState.CommandId);
 		Assert.AreEqual(ControllerCommandKind.Stop, runtime.CurrentState.Kind);
@@ -1069,6 +1161,25 @@ public sealed class EquipmentCommandRuntimeTests
 			acknowledgedCommandId,
 			sequence);
 
+	private sealed class ThrowOnSecondTimestampTimeProvider : TimeProvider
+	{
+		private readonly Exception _exception;
+		private int _callCount;
+
+		public ThrowOnSecondTimestampTimeProvider(Exception exception) => _exception = exception;
+
+		public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+
+		public override long GetTimestamp()
+		{
+			if (++_callCount == 2)
+			{
+				throw _exception;
+			}
+
+			return 0;
+		}
+	}
 	private sealed class ThrowingTimestampTimeProvider : TimeProvider
 	{
 		private readonly Exception _exception;
@@ -1089,6 +1200,25 @@ public sealed class EquipmentCommandRuntimeTests
 		public override void WriteLine(string? message) => _messages.AppendLine(message);
 	}
 
+	private sealed class TransportFailingOutputPort : IPlcOutputPort
+	{
+		private readonly PlcTransportException _exception;
+
+		public TransportFailingOutputPort(PlcTransportException exception) => _exception = exception;
+
+		public int WriteCount { get; private set; }
+		public PlcOutputCommand? LastCommand { get; private set; }
+
+		public Task<PlcWriteReceipt> WriteOutputsAsync(
+			PlcOutputCommand command,
+			CancellationToken cancellationToken)
+		{
+			cancellationToken.ThrowIfCancellationRequested();
+			WriteCount++;
+			LastCommand = command;
+			throw _exception;
+		}
+	}
 	private sealed class ControlledPlcPorts : IPlcObservationPort, IPlcOutputPort
 	{
 		private readonly Queue<PlcInputSnapshot> _snapshots = new();
@@ -1096,6 +1226,7 @@ public sealed class EquipmentCommandRuntimeTests
 		private bool _failNextRead;
 
 		public PlcConnectionState ConnectionState { get; private set; } = PlcConnectionState.Disconnected;
+		public int ConnectCount { get; private set; }
 		public int ReadCount { get; private set; }
 		public int WriteCount { get; private set; }
 		public PlcOutputCommand? LastCommand { get; private set; }
@@ -1112,6 +1243,7 @@ public sealed class EquipmentCommandRuntimeTests
 		public Task ConnectAsync(CancellationToken cancellationToken)
 		{
 			cancellationToken.ThrowIfCancellationRequested();
+			ConnectCount++;
 			ConnectionState = PlcConnectionState.Connected;
 			return Task.CompletedTask;
 		}
