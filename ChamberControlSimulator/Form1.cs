@@ -9,6 +9,7 @@ namespace ChamberControlSimulator
 	{
 		private readonly System.Diagnostics.Stopwatch _stopwatch = new();
 		private int _renderedEventCount;
+		private EquipmentStatusViewModel? _lastStatus;
 		private bool _closeTeardownStarted;
 		private bool _allowCloseAfterTeardown;
 
@@ -299,6 +300,7 @@ namespace ChamberControlSimulator
 		}
 		public void ShowEquipmentStatus(EquipmentStatusViewModel status)
 		{
+			_lastStatus = status;
 			lblPlcConnection.Text = $"PLC Connection : {status.ConnectionState}";
 			lblSynchronization.Text = $"Synchronization : {status.SynchronizationState}";
 			lblCommandStatus.Text = status.CommandDisposition == EquipmentCommandLifecycleDisposition.NoCommand
@@ -345,6 +347,11 @@ namespace ChamberControlSimulator
 					item.SubItems.Add(entry.State.ToString());
 					item.SubItems.Add(entry.Event);
 					item.SubItems.Add(entry.Alarm?.ToString() ?? string.Empty);
+					item.SubItems.Add(_lastStatus?.ConnectionState.ToString() ?? string.Empty);
+					var commandText = _lastStatus is null || _lastStatus.CommandDisposition == EquipmentCommandLifecycleDisposition.NoCommand
+						? string.Empty
+						: $"{_lastStatus.CommandKind?.ToString() ?? "—"} #{_lastStatus.CommandId?.ToString() ?? "—"} {_lastStatus.CommandDisposition}";
+					item.SubItems.Add(commandText);
 					lvwEventLog.Items.Add(item);
 				}
 

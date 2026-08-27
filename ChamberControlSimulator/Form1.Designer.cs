@@ -77,6 +77,8 @@ namespace ChamberControlSimulator
             colLogState = new ColumnHeader();
             colLogEvent = new ColumnHeader();
             colLogAlarm = new ColumnHeader();
+            colLogConnection = new ColumnHeader();
+            colLogCommand = new ColumnHeader();
             tmSimulationTick = new System.Windows.Forms.Timer(components);
             LayoutPanel.SuspendLayout();
             pnlTopBar.SuspendLayout();
@@ -606,7 +608,7 @@ namespace ChamberControlSimulator
             //
             // lvwEventLog
             //
-            lvwEventLog.Columns.AddRange(new ColumnHeader[] { colLogTime, colLogState, colLogEvent, colLogAlarm });
+            lvwEventLog.Columns.AddRange(new ColumnHeader[] { colLogTime, colLogState, colLogEvent, colLogAlarm, colLogConnection, colLogCommand });
             lvwEventLog.Dock = DockStyle.Fill;
             lvwEventLog.FullRowSelect = true;
             lvwEventLog.GridLines = true;
@@ -637,6 +639,16 @@ namespace ChamberControlSimulator
             //
             colLogAlarm.Text = "Alarm";
             colLogAlarm.Width = 110;
+            //
+            // colLogConnection
+            //
+            colLogConnection.Text = "Connection";
+            colLogConnection.Width = 110;
+            //
+            // colLogCommand
+            //
+            colLogCommand.Text = "Command";
+            colLogCommand.Width = 180;
             //
             // tmSimulationTick
             //
@@ -717,6 +729,8 @@ namespace ChamberControlSimulator
         private ColumnHeader colLogState;
         private ColumnHeader colLogEvent;
         private ColumnHeader colLogAlarm;
+        private ColumnHeader colLogConnection;
+        private ColumnHeader colLogCommand;
         private Button btnPauseFeedback;
         private Button btnDoorToggle;
         private Button btnSuppressAck;

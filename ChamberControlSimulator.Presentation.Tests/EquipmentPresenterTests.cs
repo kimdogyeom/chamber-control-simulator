@@ -29,6 +29,27 @@ public sealed class EquipmentPresenterTests
 		Assert.AreEqual(standard.Name, view.LastSnapshot.RecipeName);
 		Assert.IsEmpty(view.LastEventLog);
 	}
+	// 목적: Event Log 새로고침이 매 cycle마다 호출되어도 View가 최신 status와 함께 로그를 받는지 검증한다.
+	// 예상 결과: ShowEventLog 호출 횟수는 cycle마다 증가하고 LastStatus connection이 Connected다.
+	// 완료 조건: Core EventLogEntry 스키마를 바꾸지 않고 status stamp 경로가 유지된다.
+	[TestMethod]
+	public void TimerTicked_ForwardsEventLogWithLatestEquipmentStatus()
+	{
+		var view = new FakeEquipmentView();
+		var controller = new ThermalController(new Recipe("Standard", 250, 300), SimulationSettings.Illustrative);
+		var runtime = new StatusObservationRuntime(
+			controller,
+			PlcConnectionState.Connected,
+			ConnectionSynchronizationState.Synchronized,
+			EquipmentCommandLifecycleDisposition.NoCommand,
+			null,
+			null);
+		_ = CreatePresenter(view, controller, runtime, runtime);
+		var rendersAfterConstruct = view.EventLogRenderCount;
+		view.RaiseTimerTicked(TimeSpan.Zero);
+		Assert.AreEqual(rendersAfterConstruct + 1, view.EventLogRenderCount);
+		Assert.AreEqual(PlcConnectionState.Connected, view.LastStatus!.ConnectionState);
+	}
 
 
 	// 목적: observation cycle이 Connected이면서 WaitingForFreshInput이고 command가 AwaitingAck여도 View가 두 상태와 command를 따로 받는지 검증한다.
@@ -1418,6 +1439,12 @@ public sealed class EquipmentPresenterTests
 
 		public void ShowEquipmentStatus(EquipmentStatusViewModel status) => LastStatus = status;
 
-		public void ShowEventLog(IReadOnlyList<EventLogEntry> entries) => LastEventLog = entries.ToArray();
+		public int EventLogRenderCount { get; private set; }
+
+		public void ShowEventLog(IReadOnlyList<EventLogEntry> entries)
+		{
+			EventLogRenderCount++;
+			LastEventLog = entries.ToArray();
+		}
 	}
 }
