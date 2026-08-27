@@ -52,9 +52,10 @@ PC application의 Door/temperature/sensor interlock은 software policy demonstra
 | P4 command lifecycle | P4-T1–P4-T5 Completed; final consistency closure reviewed | reservation/admission `8f32ce7`; output/receipt `254c546`; Start exact ACK `7a874e8`; monotonic holds `0e2f6d2` + diagnostic repair `cdbca25`; complete Start/Stop/Reset family `8127888`; final audit at docs `62a675a`, Debug 0/0, full 153/153, one-hash closure cleaner/architect/QA PASS |
 | P5-T1 confirmed typed communication-loss alarm | Completed | `8fabaeb`; active typed read/write failure → Core `CommunicationLost`; Debug 0/0; full 161/161; frozen code/test-spec reviews PASS; [receipt](verification/p5-t1-communication-lost.md) |
 | P5-T2 bounded observation reconnect | Completed | `ca68f66` (parent `96a2483`); observation-only epoch, fixed three-attempt backoff, `SkippedBusy`, terminal failure metadata; Debug 0/0, Application 69/69, full 174/174, final frozen-byte reviews PASS; [P5-T2 receipt](verification/p5-t2-bounded-reconnect.md) |
-| P5-T3–P5-T5 synchronization/recovery/composite behavior | Planned | strict source-incarnation/fresh watermark, qualified recovery acknowledgement, composite-fault precedence는 아직 source/runtime evidence가 없다. |
+| P5-T3 source-backed connection synchronization | Completed | `fc37338` (repair `7a2ceec`, parent `ef16772`); source incarnation/fresh watermark, no alarm clear; Debug 0/0, full 180/180, manifest `385059c126795da79972fb1564572bfa7193291d50c680a6e8fdbfb046f67442`; [P5-T3 receipt](verification/p5-t3-source-synchronization.md) |
+| P5-T4–P5-T5 recovery/composite behavior | Planned | qualified recovery acknowledgement, composite-fault precedence는 아직 source/runtime evidence가 없다. |
 
-각 P3/P4/P5-T1/P5-T2 자동 검증 수치는 해당 source SHA와 verification receipt에만 bound된다. P5-T2 수치를 P5-T3+ synchronization/recovery/composite behavior, production release, real equipment 또는 safety claim으로 확장하지 않는다.
+각 P3/P4/P5-T1/P5-T2/P5-T3 자동 검증 수치는 해당 source SHA와 verification receipt에만 bound된다. P5-T3 수치를 P5-T4+ recovery/composite behavior, production release, real equipment 또는 safety claim으로 확장하지 않는다.
 
 ## 4. 현재 실행 경계
 
@@ -194,7 +195,7 @@ active safety-monitored I/O
 
 `EquipmentCommandRuntime`은 write가 실제 시작된 뒤의 typed failure를 매핑한다. receipt timeout 뒤 늦게 settle한 typed failure와 exact-deadline typed failure도 alarm을 보고하지만, P4 `ReceiptTimedOut`, 원래 command ID/kind, closed admission, one-write/no-retry/no-replay fence를 변경하지 않는다. write 이전 `TimeProvider` failure는 communication alarm이 아니다.
 
-P5-T1 source `8fabaeb`의 `CommunicationLost`에는 clearing/reconnect/synchronization authority가 없었다. Current P5-T2는 bounded observation reconnect만 추가하며 alarm clearing, strict source-incarnation/fresh-watermark synchronization, fresh-safe-input acceptance, acknowledgement recovery는 계속 P5-T3–P5-T5 planned 범위다. Presentation/UI runtime, Event Log/UI 확장도 이 source slice에서 검증하지 않았다.
+P5-T1 source `8fabaeb`의 `CommunicationLost`에는 clearing/reconnect/synchronization authority가 없었다. P5-T2는 bounded observation reconnect만 추가했다. Current P5-T3는 source-incarnation/fresh-watermark synchronization만 추가하며 alarm clearing, Recovery-ready, Reset은 계속 P5-T4–P5-T5 planned 범위다. Presentation/UI runtime, Event Log/UI 확장도 이 source slice에서 검증하지 않았다.
 
 ### 4.10 P5-T2 bounded observation reconnect boundary — completed
 
@@ -213,6 +214,20 @@ confirmed typed `ReadInputsAsync` fault는 P5-T1 alarm을 보고하고 epoch를 
 `EquipmentCycleResult`는 synchronization state, reconnect attempt count, 마지막 `ReconnectFailureKind`만 노출하고 exception object나 secret을 포함하지 않는다. `ConnectAsync` typed failure, cancellation, `TimeProvider`/policy-time exception은 communication alarm이 아니다. 이 metadata는 P5-T2 epoch visibility이며 P5-T3 strict source-incarnation/fresh-watermark synchronization 증거가 아니다.
 
 typed output write fault는 P5-T1 `CommunicationLost`와 P4 command ID/terminal hold/no-replay fence를 그대로 유지하고 observation synchronization만 invalidate한다. observation/output port가 distinct이고 actual observation port가 계속 `Connected`이면 coordinator는 reconnect를 추론하거나 호출하지 않는다. P5-T2는 output write, retry/replay, admission release, Reset, Recovery 또는 acknowledgement consumption을 추가하지 않는다.
+### 4.11 P5-T3 source-backed synchronization boundary — completed
+
+```text
+accepted source identity A/n
+  → typed read fault or output-fault barrier
+  → copied A or equal/lower same-incarnation sample rejected
+  → current B/0 or later same-incarnation sample may Synchronize
+  → CommunicationLost uncleared / no Recovery
+```
+
+`PlcInputSnapshot`과 `IPlcObservationPort`는 source-issued `PlcSourceTransportIncarnation`을 요구한다. Virtual PLC는 Connected 전이마다 새 identity와 sequence 0을 발급한다. Coordinator는 포트의 현재 identity와 다른 snapshot, 그리고 barrier 이후 같은 incarnation의 비증가 sequence를 `StaleObservation`/`WaitingForFreshInput`으로 거부한다. 연결된 observation port의 output fault는 `ConnectAsync`를 추론하지 않는다. exact semantic ACK는 admitted baseline incarnation과 더 큰 sequence가 아니면 명령을 완료하지 않는다.
+
+이 경계는 P5-T4 Recovery-ready나 P5-T5 composite precedence 증거가 아니다.
+
 
 ## 5. 구성 요소별 책임
 
@@ -223,9 +238,9 @@ typed output write fault는 P5-T1 `CommunicationLost`와 P4 command ID/terminal 
 | `IEquipmentObservationRuntime` | observation input/cycle/disposal capability | output command request/admission capability |
 | `IEquipmentCommandRuntime` | named Start/Stop/Reset request와 admission stop capability | observation input/cycle, disposal, PLC protocol policy |
 | `EquipmentPresenter` | async observation/Start/Stop/Reset 호출, command/cycle no-overlap ownership, close admission-stop/cancel/join/one-dispose/no-late-render | PLC protocol/ACK/deadline policy 판정 |
-| `EquipmentCoordinator` | `IPlcObservationPort` connect/read, accepted-sequence mapping, active typed read failure → Core `CommunicationLost`, bounded observation reconnect epoch와 visible failure metadata | WinForms Control 접근, output write/replay, command admission/semantic ACK, P5-T3 strict source-incarnation/fresh-watermark policy, Recovery/Reset 판단 |
+| `EquipmentCoordinator` | `IPlcObservationPort` connect/read, accepted source-identity mapping, active typed read failure → Core `CommunicationLost`, bounded reconnect epoch, P5-T3 source-fresh barrier | WinForms Control 접근, output write/replay, command admission, Recovery/Reset 판단, P5-T4 alarm clearing |
 | `EquipmentCommandCoordinator` | opaque Core reservation, one pending command-ID, narrow output one-shot dispatch, transport receipt classification, internal command-family completion request | input observation, timeout recovery, retry/replay, reservation release |
-| `EquipmentCommandRuntime` | Start/Stop/Reset baseline/admission/dispatch, shared P3/P4 serialization, exact fresh ACK, monotonic receipt/ACK deadlines, stable terminal hold, actual write typed failure → Core `CommunicationLost` + observation synchronization invalidation | observation-port reconnect 추론/제어, retry/replay/release, pre-write failure의 communication 분류, Recovery/Reset 판단 |
+| `EquipmentCommandRuntime` | Start/Stop/Reset baseline/admission/dispatch, shared P3/P4 serialization, exact fresh ACK same incarnation, monotonic deadlines, actual write typed failure → Core `CommunicationLost` + observation synchronization invalidation | observation-port reconnect 추론/제어, retry/replay/release, Recovery/Reset 판단 |
 | `ThermalController` | phase, interlock, pending alarms including `CommunicationLost`, Recovery/Reset, recipe, event history | socket, reconnect, Modbus address, async I/O, system clock 직접 접근 |
 | `IPlcObservationPort` | connect/disconnect/read observation contract | output write, UI/Core dependency, simulation fault control |
 | `IPlcOutputPort` | typed one-shot output write only | input read, connection/disposal, UI/Core dependency, simulation controls |

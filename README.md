@@ -20,7 +20,8 @@ WinForms 기반 가상 열처리 챔버 제어 시뮬레이터입니다. UI, Cor
 | P4 command lifecycle | P4-T1–P4-T5 Completed; final consistency closure reviewed | reservation/admission `8f32ce7`; output/receipt `254c546`; Start exact fresh ACK `7a874e8`; monotonic hold/awaited ownership `0e2f6d2` + diagnostic repair `cdbca25`; complete Start/Stop/Reset family `8127888`; final Windows Debug 0 warnings/0 errors and full 153/153 at docs HEAD `62a675a`; 12-commit lineage/evidence audit and one-hash cleaner/architect/QA closure cohort PASS; [final P4 closure receipt](docs/verification/p4-final-consistency-closure.md) |
 | P5-T1 confirmed typed communication-loss alarm | Completed | source `8fabaeb` (baseline `ef01e09`); Debug build 0 warnings/0 errors; Abstractions 19/19, Core 40/40, Presentation 26/26, Application 56/56, Simulation 20/20, full 161/161; final frozen-byte code 및 test/spec reviews PASS, manifest `40c624dc133a00c3f88a93531b6a9b23a8215d7901f5cca2d80e91c52108f706`; [P5-T1 receipt](docs/verification/p5-t1-communication-lost.md) |
 | P5-T2 bounded observation reconnect | Completed | source `ca68f66` (parent `96a2483`); observation-only reconnect epoch, injected `TimeProvider`, fixed 250 ms → +500 ms → +1 s / maximum three-attempt policy, non-queueing `SkippedBusy`, terminal exhaustion/cancellation; Debug 0/0, Application 69/69, full 174/174, final frozen-byte reviews PASS; [P5-T2 receipt](docs/verification/p5-t2-bounded-reconnect.md) |
-| P5-T3–P5-T5 synchronization/recovery/composite behavior | Planned | strict source-incarnation/fresh-watermark synchronization, qualified recovery acknowledgement, composite-fault precedence는 P5-T2 증거가 아니다. |
+| P5-T3 source-backed connection synchronization | Completed | source `fc37338` (comment repair `7a2ceec`, parent `ef16772`); mandatory `PlcSourceTransportIncarnation`, current-port identity, Virtual PLC per-connect mint/reset, coordinator source-fresh barrier, output-fault later-sample barrier, P4 exact ACK incarnation fence; Debug 0/0, Abstractions 22, Application 72, full 180/180, Windows-byte manifest `385059c126795da79972fb1564572bfa7193291d50c680a6e8fdbfb046f67442`, frozen code/test-spec reviews PASS; [P5-T3 receipt](docs/verification/p5-t3-source-synchronization.md) |
+| P5-T4–P5-T5 recovery/composite behavior | Planned | qualified recovery acknowledgement와 composite-fault precedence는 P5-T3 증거가 아니다. |
 
 ## 현재 구현된 책임 경계
 
@@ -173,7 +174,7 @@ confirmed active ReadInputsAsync typed fault
 - result는 synchronization state, attempt count, 마지막 non-secret failure kind를 노출한다. `ConnectAsync`, cancellation, `TimeProvider`/policy-time failure는 Core communication alarm으로 재분류하지 않으며 cancellation과 attempt exhaustion은 추가 자동 reconnect 없이 terminal로 남는다.
 - confirmed read fault가 epoch를 열어도 같은 cycle에서 reconnect하지 않는다. reconnect-success 직후 typed read fault는 같은 epoch의 count/backoff를 보존하고 세 번째 attempt의 read fault는 불필요한 추가 clock 조회 없이 즉시 exhaustion을 노출한다.
 - confirmed typed output write fault는 P5-T1 `CommunicationLost`와 P4 command ID/terminal hold/no-replay fence를 유지하면서 observation synchronization만 invalidate한다. output port와 별개인 observation port가 계속 `Connected`이면 reconnect를 추론하거나 `ConnectAsync`를 호출하지 않는다.
-- 이 slice는 output 생성, retry/replay, command admission release, Reset 또는 Recovery를 수행하지 않는다. P5-T3 strict source-incarnation/fresh-watermark synchronization, P5-T4 qualified recovery acknowledgement, P5-T5 composite precedence도 포함하지 않는다.
+- 이 slice는 output 생성, retry/replay, command admission release, Reset 또는 Recovery를 수행하지 않는다. P5-T3 source-incarnation/fresh-watermark synchronization은 별도 Completed slice이며 P5-T4 qualified recovery acknowledgement, P5-T5 composite precedence는 포함하지 않는다.
 
 정확한 source scope와 evidence/nonclaim은 [`docs/verification/p5-t2-bounded-reconnect.md`](docs/verification/p5-t2-bounded-reconnect.md)에 기록한다.
 
@@ -194,7 +195,7 @@ public interface IPlcClient : IPlcObservationPort, IPlcOutputPort
 }
 ```
 
-`PlcInputSnapshot`은 `DoorClosed`, `SensorHealthy`, `CurrentTemperature`, `MachineState`, `AcknowledgedCommandId`, `ObservationSequence`을 가진 immutable observation이다.
+`PlcInputSnapshot`은 `DoorClosed`, `SensorHealthy`, `CurrentTemperature`, `MachineState`, `AcknowledgedCommandId`, `ObservationSequence`, `SourceTransportIncarnation`을 가진 immutable observation이다.
 
 `PlcOutputCommand`는 `CommandId`와 `PlcCommandKind` (`Start`, `Stop`, `Reset`)를 가진 typed one-shot command다. retained admission은 한 번만 dispatch된다. exact matching `Written`도 receipt 3초 안에 관찰된 경우에만 ACK epoch를 시작하며 PLC acceptance, equipment state transition, semantic ACK, completion을 뜻하지 않는다. timeout, mismatched/failed receipt, write exception/cancellation은 pending reservation과 duplicate fence를 유지하며 자동 retry/replay/release하지 않는다.
 
@@ -220,6 +221,7 @@ P3-T4 source `2e502fa`는 Form/Presenter를 PLC observation runtime에 연결했
 - P4-T1 full 92/92는 `8f32ce7`, P4-T2 full 96/96는 `254c546`, P4-T3 full 114/114는 `7a874e8`, P4-T4 full 128/128는 `cdbca25`, P4-T5 Core 39/39 + Application 49/49 + Simulation 20/20 + Presentation 26/26 + Abstractions 19/19와 full 153/153는 `8127888`에 bound된다. 어느 결과도 reconnect recovery, real Modbus TCP/PLC/equipment, E-Stop, Safety PLC, hardware safety, 또는 human safety를 뜻하지 않는다.
 - P5-T1 source `8fabaeb`는 Debug 0 warnings/0 errors와 Abstractions 19/19 + Core 40/40 + Presentation 26/26 + Application 56/56 + Simulation 20/20, full 161/161에 bound된다. S08 자동 integration evidence만 추가하며 reconnect/synchronization/recovery, Presentation/UI runtime, Event Log/UI 확장, Modbus/TCP, real PLC/equipment, hardware/human safety, push/release evidence는 아니다.
 - P5-T2 source `ca68f66`는 parent `96a2483`, exact five-path scope, Debug 0 warnings/0 errors와 Abstractions 19/19 + Core 40/40 + Application 69/69 + Presentation 26/26 + Simulation 20/20, full 174/174, final source manifest `5ad1b6979107b838f34bc839c07b2a185f1763c46194f76e17debbf35810864e` 및 두 final frozen-byte review PASS에 bound된다. 이는 bounded abstract observation reconnect evidence일 뿐 P5-T3/T4/T5, UI/Event Log, Modbus/TCP, real device/equipment, hardware/human safety 또는 publication evidence가 아니다.
+- P5-T3 source `fc37338` (repair `7a2ceec`, parent `ef16772`)는 Debug 0 warnings/0 errors와 Abstractions 22/22 + Core 40/40 + Application 72/72 + Presentation 26/26 + Simulation 20/20, full 180/180, Windows-byte manifest `385059c126795da79972fb1564572bfa7193291d50c680a6e8fdbfb046f67442` 및 두 frozen-byte review PASS에 bound된다. 이는 source-backed synchronization evidence일 뿐 P5-T4/T5, UI/Event Log, Modbus/TCP, real device/equipment, hardware/human safety 또는 publication evidence가 아니다.
 
 ## 재현 명령
 
@@ -243,4 +245,5 @@ dotnet test ChamberControlSimulator.slnx --configuration Debug --no-build --no-r
 - [`docs/verification/p4-t5-command-family-completeness.md`](docs/verification/p4-t5-command-family-completeness.md): P4-T5 source SHA, complete command-family/global-fence/simulation/Presentation evidence, repaired reviews, and recovery/device/safety nonclaims
 - [`docs/verification/p5-t1-communication-lost.md`](docs/verification/p5-t1-communication-lost.md): P5-T1 source SHA, confirmed typed read/write classification, preserved P4 holds, Windows 161/161/review evidence, 그리고 P5-T2+·UI·device·release nonclaims
 - [`docs/verification/p5-t2-bounded-reconnect.md`](docs/verification/p5-t2-bounded-reconnect.md): P5-T2 source SHA/parent, exact five-path scope, bounded observation reconnect/TDD/Windows 174/174/review evidence, 그리고 P5-T3+·UI·device·safety·publication nonclaims
+- [`docs/verification/p5-t3-source-synchronization.md`](docs/verification/p5-t3-source-synchronization.md): P5-T3 source SHA/repair, exact ten-path scope, incarnation/fresh-watermark/Windows 180/180/review evidence, 그리고 P5-T4+·UI·device·safety·publication nonclaims
 - local ignored `docs/roadmap/STATUS.md`: 다음 작업 세션용 current progress tracker. tracked verification receipt를 대체하지 않는다.
