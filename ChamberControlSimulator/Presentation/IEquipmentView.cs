@@ -25,6 +25,7 @@ namespace ChamberControlSimulator.Presentation
 
 		void ShowRecipeOptions(IReadOnlyList<Recipe> recipes);
 		void ShowSnapshot(ControllerSnapshot snapshot);
+		void ShowEquipmentStatus(EquipmentStatusViewModel status);
 		void ShowEventLog(IReadOnlyList<EventLogEntry> entries);
 
 	}

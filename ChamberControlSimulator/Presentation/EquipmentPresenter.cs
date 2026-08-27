@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 using ChamberControlSimulator.Core;
+using ChamberControlSimulator.Application;
+using ChamberControlSimulator.Plc.Abstractions;
 
 namespace ChamberControlSimulator.Presentation
 {
@@ -11,6 +13,12 @@ namespace ChamberControlSimulator.Presentation
 		private readonly ThermalController _controller;
 		private readonly IEquipmentObservationRuntime _observationRuntime;
 		private readonly IEquipmentCommandRuntime _commandRuntime;
+		private EquipmentStatusViewModel _status = new(
+			PlcConnectionState.Disconnected,
+			ConnectionSynchronizationState.WaitingForFreshInput,
+			EquipmentCommandLifecycleDisposition.NoCommand,
+			null,
+			null);
 		private readonly CancellationTokenSource _shutdown = new();
 		private readonly object _lifecycleLock = new();
 		private Task? _activeCycle;
@@ -126,7 +134,15 @@ namespace ChamberControlSimulator.Presentation
 
 		private void RefreshView()
 		{
+			var command = _commandRuntime.CurrentState;
+			_status = _status with
+			{
+				CommandDisposition = command.Disposition,
+				CommandId = command.CommandId,
+				CommandKind = command.Kind
+			};
 			_view.ShowSnapshot(_controller.Snapshot);
+			_view.ShowEquipmentStatus(_status);
 			_view.ShowEventLog(_controller.EventHistory);
 		}
 
@@ -313,12 +329,18 @@ namespace ChamberControlSimulator.Presentation
 		}
 
 		private async Task CompleteCycleAsync(
-			Task activeCycle,
+			Task<EquipmentCommandCycleResult> activeCycle,
 			TaskCompletionSource<bool> activeCycleCompletion)
 		{
 			try
 			{
-				await activeCycle;
+				var cycle = await activeCycle;
+				_status = new EquipmentStatusViewModel(
+					cycle.ObservationResult.ConnectionState,
+					cycle.ObservationResult.SynchronizationState,
+					cycle.CommandDisposition,
+					cycle.CommandId,
+					_commandRuntime.CurrentState.Kind);
 				if (Volatile.Read(ref _isDisposed) == 0)
 				{
 					RefreshView();

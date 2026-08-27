@@ -4,6 +4,8 @@ namespace ChamberControlSimulator.Presentation
 {
 	internal interface IEquipmentCommandRuntime
 	{
+		EquipmentCommandLifecycleState CurrentState { get; }
+
 		Task<EquipmentCommandRequestResult> RequestStartAsync(CancellationToken cancellationToken);
 
 		Task<EquipmentCommandRequestResult> RequestStopAsync(CancellationToken cancellationToken);

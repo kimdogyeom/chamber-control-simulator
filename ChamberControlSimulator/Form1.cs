@@ -1,4 +1,5 @@
 using ChamberControlSimulator.Presentation;
+using ChamberControlSimulator.Application;
 using ChamberControlSimulator.Core;
 using System.Drawing;
 
@@ -283,6 +284,14 @@ namespace ChamberControlSimulator
 
 			btnPauseFeedback.Enabled = !snapshot.IsFeedbackPaused;
 			btnResumeFeedback.Enabled = snapshot.IsFeedbackPaused;
+		}
+		public void ShowEquipmentStatus(EquipmentStatusViewModel status)
+		{
+			lblPlcConnection.Text = $"PLC Connection : {status.ConnectionState}";
+			lblSynchronization.Text = $"Synchronization : {status.SynchronizationState}";
+			lblCommandStatus.Text = status.CommandDisposition == EquipmentCommandLifecycleDisposition.NoCommand
+				? "Command : None"
+				: $"Command : {status.CommandKind?.ToString() ?? "—"} #{status.CommandId?.ToString() ?? "—"} {status.CommandDisposition}";
 		}
 
 		private bool IsEventLogAtBottom()

@@ -16,6 +16,8 @@ namespace ChamberControlSimulator.Presentation
 			_simulationControl = simulationControl ?? throw new ArgumentNullException(nameof(simulationControl));
 		}
 
+		public EquipmentCommandLifecycleState CurrentState => _commandRuntime.CurrentState;
+
 		public void SetCurrentTemperature(double currentTemperature)
 		{
 			_simulationControl.SetCurrentTemperature(currentTemperature);
@@ -31,10 +33,8 @@ namespace ChamberControlSimulator.Presentation
 			_simulationControl.SetDoorClosed(doorClosed);
 		}
 
-		public async Task CycleAsync(TimeSpan elapsed, CancellationToken cancellationToken)
-		{
-			await _commandRuntime.CycleAsync(elapsed, cancellationToken);
-		}
+		public Task<EquipmentCommandCycleResult> CycleAsync(TimeSpan elapsed, CancellationToken cancellationToken) =>
+			_commandRuntime.CycleAsync(elapsed, cancellationToken);
 
 		public Task<EquipmentCommandRequestResult> RequestStartAsync(CancellationToken cancellationToken) =>
 			_commandRuntime.RequestStartAsync(cancellationToken);

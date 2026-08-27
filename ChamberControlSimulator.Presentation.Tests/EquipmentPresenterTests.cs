@@ -30,6 +30,39 @@ public sealed class EquipmentPresenterTests
 		Assert.IsEmpty(view.LastEventLog);
 	}
 
+
+	// 목적: observation cycle이 Connected이면서 WaitingForFreshInput이고 command가 AwaitingAck여도 View가 두 상태와 command를 따로 받는지 검증한다.
+	// 예상 결과: LastStatus connection/sync/command가 cycle 값과 같고 CanReset은 snapshot 플래그 그대로다.
+	// 완료 조건: Presenter가 복구 규칙을 계산하지 않고 Application 결과를 매핑만 한다.
+	[TestMethod]
+	public void TimerTicked_MapsConnectionSynchronizationAndCommandWithoutJudgingRecovery()
+	{
+		var view = new FakeEquipmentView();
+		var controller = new ThermalController(new Recipe("Standard", 250, 300), SimulationSettings.Illustrative);
+		controller.Start();
+		controller.ReportCommunicationLost();
+		var runtime = new StatusObservationRuntime(
+			controller,
+			PlcConnectionState.Connected,
+			ConnectionSynchronizationState.WaitingForFreshInput,
+			EquipmentCommandLifecycleDisposition.AwaitingAcknowledgement,
+			1,
+			ControllerCommandKind.Start);
+		_ = CreatePresenter(view, controller, runtime, runtime);
+
+		view.RaiseTimerTicked(TimeSpan.Zero);
+
+		Assert.IsNotNull(view.LastStatus);
+		Assert.AreEqual(PlcConnectionState.Connected, view.LastStatus!.ConnectionState);
+		Assert.AreEqual(ConnectionSynchronizationState.WaitingForFreshInput, view.LastStatus.SynchronizationState);
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.AwaitingAcknowledgement, view.LastStatus.CommandDisposition);
+		Assert.AreEqual(1L, view.LastStatus.CommandId);
+		Assert.AreEqual(ControllerCommandKind.Start, view.LastStatus.CommandKind);
+		Assert.AreEqual(AlarmKind.CommunicationLost, view.LastSnapshot!.ActiveAlarm);
+		Assert.IsFalse(view.LastSnapshot.CanReset);
+		Assert.IsFalse(view.LastSnapshot.IsRecoveryReady);
+	}
+
 	// 목적: Start/Stop/Reset command와 timer/closing lifecycle이 모두 owned awaitable View contract인지 검증한다.
 	// 예상 결과: 세 command event와 ClosingRequested는 Func<Task>, TimerTicked는 Func<TimerTickedEventArgs, Task>다.
 	// 완료 조건: command-family UI routing과 teardown이 fire-and-forget seam을 갖지 않는다.
@@ -750,11 +783,11 @@ public sealed class EquipmentPresenterTests
 		{
 		}
 
-		public Task CycleAsync(TimeSpan elapsed, CancellationToken cancellationToken)
+		public Task<EquipmentCommandCycleResult> CycleAsync(TimeSpan elapsed, CancellationToken cancellationToken)
 		{
 			_ = DisposeDuringCycle?.Invoke();
 			_cycleStarted.TrySetResult(true);
-			return _releaseCycle.Task;
+			return AwaitDisconnectedAsync(_releaseCycle.Task);
 		}
 
 		public void ReleaseCycle() => _releaseCycle.TrySetResult(true);
@@ -786,7 +819,7 @@ public sealed class EquipmentPresenterTests
 		{
 		}
 
-		public async Task CycleAsync(TimeSpan elapsed, CancellationToken cancellationToken)
+		public async Task<EquipmentCommandCycleResult> CycleAsync(TimeSpan elapsed, CancellationToken cancellationToken)
 		{
 			ReceivedElapsed.Add(elapsed);
 			if (ReceivedElapsed.Count == 1)
@@ -794,6 +827,8 @@ public sealed class EquipmentPresenterTests
 				_firstCycleStarted.TrySetResult(true);
 				await _releaseFirstCycle.Task.WaitAsync(cancellationToken);
 			}
+
+			return CreateDisconnectedCycle();
 		}
 
 		public void ReleaseFirstCycle() => _releaseFirstCycle.TrySetResult(true);
@@ -821,10 +856,11 @@ public sealed class EquipmentPresenterTests
 		{
 		}
 
-		public async Task CycleAsync(TimeSpan elapsed, CancellationToken cancellationToken)
+		public async Task<EquipmentCommandCycleResult> CycleAsync(TimeSpan elapsed, CancellationToken cancellationToken)
 		{
 			_cycleStarted.TrySetResult(true);
 			await _releaseCycle.Task;
+			return CreateDisconnectedCycle();
 		}
 
 		public void ReleaseCycle() => _releaseCycle.TrySetResult(true);
@@ -856,10 +892,11 @@ public sealed class EquipmentPresenterTests
 		{
 		}
 
-		public async Task CycleAsync(TimeSpan elapsed, CancellationToken cancellationToken)
+		public async Task<EquipmentCommandCycleResult> CycleAsync(TimeSpan elapsed, CancellationToken cancellationToken)
 		{
 			_cycleStarted.TrySetResult(true);
 			await _faultCycle.Task;
+			return CreateDisconnectedCycle();
 		}
 
 		public void FaultCycle() => _faultCycle.TrySetException(new InvalidOperationException("Expected test cycle fault."));
@@ -893,7 +930,7 @@ public sealed class EquipmentPresenterTests
 		{
 		}
 
-		public async Task CycleAsync(TimeSpan elapsed, CancellationToken cancellationToken)
+		public async Task<EquipmentCommandCycleResult> CycleAsync(TimeSpan elapsed, CancellationToken cancellationToken)
 		{
 			_cycleStarted.TrySetResult(true);
 
@@ -906,6 +943,7 @@ public sealed class EquipmentPresenterTests
 				_cancellationObserved.TrySetResult(true);
 				throw;
 			}
+			return CreateDisconnectedCycle();
 		}
 
 		public ValueTask DisposeAsync()
@@ -936,12 +974,13 @@ public sealed class EquipmentPresenterTests
 		{
 		}
 
-		public async Task CycleAsync(TimeSpan elapsed, CancellationToken cancellationToken)
+		public async Task<EquipmentCommandCycleResult> CycleAsync(TimeSpan elapsed, CancellationToken cancellationToken)
 		{
 			cancellationToken.ThrowIfCancellationRequested();
 			CycleCallCount++;
 			_cycleStarted.TrySetResult(true);
 			await _releaseCycle.Task.WaitAsync(cancellationToken);
+			return CreateDisconnectedCycle();
 		}
 
 		public void ReleaseCycle() => _releaseCycle.TrySetResult(true);
@@ -951,6 +990,13 @@ public sealed class EquipmentPresenterTests
 
 	private sealed class PassiveCommandRuntime : IEquipmentCommandRuntime
 	{
+		public EquipmentCommandLifecycleState CurrentState { get; } = new(
+			EquipmentCommandLifecycleDisposition.NoCommand,
+			null,
+			null,
+			null,
+			null);
+
 		public Task<EquipmentCommandRequestResult> RequestStartAsync(CancellationToken cancellationToken)
 		{
 			cancellationToken.ThrowIfCancellationRequested();
@@ -988,12 +1034,19 @@ public sealed class EquipmentPresenterTests
 		public bool StopAdmissionCalled { get; private set; }
 		public bool CancellationObservedAfterStopAdmission { get; private set; }
 
+		public EquipmentCommandLifecycleState CurrentState { get; } = new(
+			EquipmentCommandLifecycleDisposition.NoCommand,
+			null,
+			null,
+			null,
+			null);
 		public void StopAdmission() => StopAdmissionCalled = true;
 		public void ReleaseRequest() => _releaseRequest.TrySetResult(true);
 		public void SetCurrentTemperature(double currentTemperature) { }
 		public void SetSensorHealthy(bool sensorHealthy) { }
 		public void SetDoorClosed(bool doorClosed) { }
-		public Task CycleAsync(TimeSpan elapsed, CancellationToken cancellationToken) => Task.CompletedTask;
+		public Task<EquipmentCommandCycleResult> CycleAsync(TimeSpan elapsed, CancellationToken cancellationToken) =>
+			Task.FromResult(CreateDisconnectedCycle());
 
 		public Task<EquipmentCommandRequestResult> RequestStartAsync(CancellationToken cancellationToken) =>
 			RequestCommandAsync(ControllerCommandKind.Start, cancellationToken);
@@ -1051,10 +1104,10 @@ public sealed class EquipmentPresenterTests
 		{
 		}
 
-		public Task CycleAsync(TimeSpan elapsed, CancellationToken cancellationToken)
+		public Task<EquipmentCommandCycleResult> CycleAsync(TimeSpan elapsed, CancellationToken cancellationToken)
 		{
 			cancellationToken.ThrowIfCancellationRequested();
-			return Task.CompletedTask;
+			return Task.FromResult(CreateDisconnectedCycle());
 		}
 
 		public ValueTask DisposeAsync() => ValueTask.CompletedTask;
@@ -1083,7 +1136,7 @@ public sealed class EquipmentPresenterTests
 
 		public void SetCurrentTemperature(double currentTemperature) => LastRequestedTemperature = currentTemperature;
 
-		public Task CycleAsync(TimeSpan elapsed, CancellationToken cancellationToken)
+		public Task<EquipmentCommandCycleResult> CycleAsync(TimeSpan elapsed, CancellationToken cancellationToken)
 		{
 			cancellationToken.ThrowIfCancellationRequested();
 			CycleCallCount++;
@@ -1091,9 +1144,94 @@ public sealed class EquipmentPresenterTests
 			_controller.ApplyObservation(
 				new ThermalObservation(isDoorOpen: false, sensorHealthy: true, currentTemperature: _observedTemperature),
 				elapsed);
-			return Task.CompletedTask;
+			return Task.FromResult(CreateCycle(_controller, PlcConnectionState.Connected, ConnectionSynchronizationState.Synchronized));
 		}
 
+		public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+	}
+
+
+
+	private static async Task<EquipmentCommandCycleResult> AwaitDisconnectedAsync(Task gate)
+	{
+		await gate;
+		return CreateDisconnectedCycle();
+	}
+
+	private static EquipmentCommandCycleResult CreateDisconnectedCycle() =>
+		CreateCycle(
+			new ThermalController(new Recipe("Standard", 250, 300), SimulationSettings.Illustrative),
+			PlcConnectionState.Disconnected,
+			ConnectionSynchronizationState.WaitingForFreshInput);
+
+	private static EquipmentCommandCycleResult CreateCycle(
+		ThermalController controller,
+		PlcConnectionState connectionState,
+		ConnectionSynchronizationState synchronizationState,
+		EquipmentCommandLifecycleDisposition commandDisposition = EquipmentCommandLifecycleDisposition.NoCommand,
+		long? commandId = null) =>
+		new(
+			new EquipmentCycleResult(
+				EquipmentCycleDisposition.Completed,
+				controller.Snapshot,
+				connectionState,
+				null,
+				synchronizationState,
+				0,
+				ReconnectFailureKind.None),
+			commandDisposition,
+			commandId);
+
+
+	private sealed class StatusObservationRuntime : IEquipmentObservationRuntime, IEquipmentCommandRuntime
+	{
+		private readonly ThermalController _controller;
+		private readonly PlcConnectionState _connectionState;
+		private readonly ConnectionSynchronizationState _synchronizationState;
+		private readonly EquipmentCommandLifecycleDisposition _disposition;
+		private readonly long? _commandId;
+		private readonly ControllerCommandKind? _kind;
+
+		public StatusObservationRuntime(
+			ThermalController controller,
+			PlcConnectionState connectionState,
+			ConnectionSynchronizationState synchronizationState,
+			EquipmentCommandLifecycleDisposition disposition,
+			long? commandId,
+			ControllerCommandKind? kind)
+		{
+			_controller = controller;
+			_connectionState = connectionState;
+			_synchronizationState = synchronizationState;
+			_disposition = disposition;
+			_commandId = commandId;
+			_kind = kind;
+		}
+
+		public EquipmentCommandLifecycleState CurrentState => new(
+			_disposition,
+			_commandId,
+			_kind,
+			null,
+			null);
+
+		public void SetCurrentTemperature(double currentTemperature) { }
+		public void SetSensorHealthy(bool sensorHealthy) { }
+		public void SetDoorClosed(bool doorClosed) { }
+		public void StopAdmission() { }
+
+		public Task<EquipmentCommandCycleResult> CycleAsync(TimeSpan elapsed, CancellationToken cancellationToken)
+		{
+			cancellationToken.ThrowIfCancellationRequested();
+			return Task.FromResult(CreateCycle(_controller, _connectionState, _synchronizationState, _disposition, _commandId));
+		}
+
+		public Task<EquipmentCommandRequestResult> RequestStartAsync(CancellationToken cancellationToken) =>
+			Task.FromResult(new EquipmentCommandRequestResult(_disposition, _commandId));
+		public Task<EquipmentCommandRequestResult> RequestStopAsync(CancellationToken cancellationToken) =>
+			RequestStartAsync(cancellationToken);
+		public Task<EquipmentCommandRequestResult> RequestResetAsync(CancellationToken cancellationToken) =>
+			RequestStartAsync(cancellationToken);
 		public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 	}
 
@@ -1183,11 +1321,15 @@ public sealed class EquipmentPresenterTests
 
 		public void ShowRecipeOptions(IReadOnlyList<Recipe> recipes) => RecipeOptions = recipes.ToArray();
 
+		public EquipmentStatusViewModel? LastStatus { get; private set; }
+
 		public void ShowSnapshot(ControllerSnapshot snapshot)
 		{
 			LastSnapshot = snapshot;
 			SnapshotRenderCount++;
 		}
+
+		public void ShowEquipmentStatus(EquipmentStatusViewModel status) => LastStatus = status;
 
 		public void ShowEventLog(IReadOnlyList<EventLogEntry> entries) => LastEventLog = entries.ToArray();
 	}

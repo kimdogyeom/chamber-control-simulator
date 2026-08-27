@@ -1,0 +1,13 @@
+using ChamberControlSimulator.Core;
+using ChamberControlSimulator.Application;
+using ChamberControlSimulator.Plc.Abstractions;
+
+namespace ChamberControlSimulator.Presentation
+{
+	public sealed record EquipmentStatusViewModel(
+		PlcConnectionState ConnectionState,
+		ConnectionSynchronizationState SynchronizationState,
+		EquipmentCommandLifecycleDisposition CommandDisposition,
+		long? CommandId,
+		ControllerCommandKind? CommandKind);
+}

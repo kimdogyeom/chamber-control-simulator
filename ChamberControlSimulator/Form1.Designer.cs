@@ -346,6 +346,9 @@ namespace ChamberControlSimulator
             //
             // grpSafetyInterlock
             //
+            grpSafetyInterlock.Controls.Add(lblCommandStatus);
+            grpSafetyInterlock.Controls.Add(lblSynchronization);
+            grpSafetyInterlock.Controls.Add(lblPlcConnection);
             grpSafetyInterlock.Controls.Add(lblActiveAlarm);
             grpSafetyInterlock.Controls.Add(lblRecoveryReady);
             grpSafetyInterlock.Controls.Add(lblFeedbackState);
@@ -363,27 +366,27 @@ namespace ChamberControlSimulator
             // lblActiveAlarm
             //
             lblActiveAlarm.AutoSize = true;
-            lblActiveAlarm.Location = new Point(36, 166);
+            lblActiveAlarm.Location = new Point(36, 274);
             lblActiveAlarm.Margin = new Padding(6, 0, 6, 0);
             lblActiveAlarm.Name = "lblActiveAlarm";
             lblActiveAlarm.Size = new Size(197, 32);
-            lblActiveAlarm.TabIndex = 2;
+            lblActiveAlarm.TabIndex = 5;
             lblActiveAlarm.Text = "Active Alarm : —";
             //
             // lblRecoveryReady
             //
             lblRecoveryReady.AutoSize = true;
-            lblRecoveryReady.Location = new Point(36, 220);
+            lblRecoveryReady.Location = new Point(36, 328);
             lblRecoveryReady.Margin = new Padding(6, 0, 6, 0);
             lblRecoveryReady.Name = "lblRecoveryReady";
             lblRecoveryReady.Size = new Size(232, 32);
-            lblRecoveryReady.TabIndex = 3;
+            lblRecoveryReady.TabIndex = 6;
             lblRecoveryReady.Text = "Recovery Ready : —";
             //
             // lblFeedbackState
             //
             lblFeedbackState.AutoSize = true;
-            lblFeedbackState.Location = new Point(36, 113);
+            lblFeedbackState.Location = new Point(36, 220);
             lblFeedbackState.Margin = new Padding(6, 0, 6, 0);
             lblFeedbackState.Name = "lblFeedbackState";
             lblFeedbackState.Size = new Size(241, 32);
@@ -393,12 +396,42 @@ namespace ChamberControlSimulator
             // lblDoorState
             //
             lblDoorState.AutoSize = true;
-            lblDoorState.Location = new Point(36, 60);
+            lblDoorState.Location = new Point(36, 180);
             lblDoorState.Margin = new Padding(6, 0, 6, 0);
             lblDoorState.Name = "lblDoorState";
             lblDoorState.Size = new Size(113, 32);
             lblDoorState.TabIndex = 0;
             lblDoorState.Text = "Door : —";
+            //
+            // lblPlcConnection
+            //
+            lblPlcConnection.AutoSize = true;
+            lblPlcConnection.Location = new Point(36, 60);
+            lblPlcConnection.Margin = new Padding(6, 0, 6, 0);
+            lblPlcConnection.Name = "lblPlcConnection";
+            lblPlcConnection.Size = new Size(260, 32);
+            lblPlcConnection.TabIndex = 7;
+            lblPlcConnection.Text = "PLC Connection : —";
+            //
+            // lblSynchronization
+            //
+            lblSynchronization.AutoSize = true;
+            lblSynchronization.Location = new Point(36, 100);
+            lblSynchronization.Margin = new Padding(6, 0, 6, 0);
+            lblSynchronization.Name = "lblSynchronization";
+            lblSynchronization.Size = new Size(260, 32);
+            lblSynchronization.TabIndex = 8;
+            lblSynchronization.Text = "Synchronization : —";
+            //
+            // lblCommandStatus
+            //
+            lblCommandStatus.AutoSize = true;
+            lblCommandStatus.Location = new Point(36, 140);
+            lblCommandStatus.Margin = new Padding(6, 0, 6, 0);
+            lblCommandStatus.Name = "lblCommandStatus";
+            lblCommandStatus.Size = new Size(260, 32);
+            lblCommandStatus.TabIndex = 9;
+            lblCommandStatus.Text = "Command : None";
             //
             // pnlSimulation
             //
@@ -640,6 +673,9 @@ namespace ChamberControlSimulator
         private Button btnReset;
         private Button btnAcknowledge;
         private Button btnStart;
+        private Label lblPlcConnection;
+        private Label lblSynchronization;
+        private Label lblCommandStatus;
         private Label lblActiveAlarm;
         private Label lblRecoveryReady;
         private Label lblFeedbackState;

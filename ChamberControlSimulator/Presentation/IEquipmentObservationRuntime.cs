@@ -1,3 +1,5 @@
+using ChamberControlSimulator.Application;
+
 namespace ChamberControlSimulator.Presentation
 {
 	internal interface IEquipmentObservationRuntime : IAsyncDisposable
@@ -8,6 +10,6 @@ namespace ChamberControlSimulator.Presentation
 
 		void SetDoorClosed(bool doorClosed);
 
-		Task CycleAsync(TimeSpan elapsed, CancellationToken cancellationToken);
+		Task<EquipmentCommandCycleResult> CycleAsync(TimeSpan elapsed, CancellationToken cancellationToken);
 	}
 }
