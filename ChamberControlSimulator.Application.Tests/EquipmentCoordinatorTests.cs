@@ -719,6 +719,68 @@ public sealed class EquipmentCoordinatorTests
 		Assert.AreEqual(ReconnectFailureKind.None, fresh.LastReconnectFailure);
 	}
 
+	// 목적: 동기화된 안전 입력 뒤 새 Acknowledge만 CommunicationLost를 Recovery-ready로 바꾸는지 검증한다.
+	// 예상 결과: B/0 동기화 후 Acknowledge 전엔 Alarm이고, Acknowledge 후 Recovery이며 Reset 호출은 0이다.
+	// 완료 조건: CommunicationLost는 pending이 아니고 CanReset true여도 EventHistory에 Reset이 없다.
+	[TestMethod]
+	public async Task CycleAsync_AfterSynchronizedSafeInput_NewAcknowledgeReachesRecoveryReadyWithoutReset()
+	{
+		var controller = new ThermalController(
+			new Recipe("Test", targetTemperature: 30d, safetyTemperature: 35d),
+			SimulationSettings.Illustrative);
+		controller.Start();
+		var sourceA = new PlcSourceTransportIncarnation(Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"));
+		var sourceB = new PlcSourceTransportIncarnation(Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"));
+		var plc = new RecordingPlcClient(
+			new PlcInputSnapshot(true, true, 20d, PlcMachineState.Idle, 0, 100, sourceA),
+			new PlcInputSnapshot(true, true, 21d, PlcMachineState.Idle, 0, 0, sourceB))
+		{
+			CurrentSourceOverride = sourceA
+		};
+		await using var coordinator = new EquipmentCoordinator(controller, plc);
+		await coordinator.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		plc.FailNextReadKeepingConnection = true;
+		await coordinator.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		plc.ForceConnected(sourceB);
+		var fresh = await coordinator.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		Assert.AreEqual(ConnectionSynchronizationState.Synchronized, fresh.SynchronizationState);
+		Assert.AreEqual(ControllerState.Alarm, controller.Snapshot.State);
+		controller.AcknowledgeAlarm();
+		Assert.AreEqual(ControllerState.Recovery, controller.Snapshot.State);
+		Assert.IsTrue(controller.Snapshot.IsRecoveryReady);
+		Assert.IsFalse(controller.EventHistory.Any(entry => entry.Event == "Reset"));
+	}
+
+	// 목적: 동기화된 불안전 입력에서는 Acknowledge해도 Recovery-ready가 되지 않는지 검증한다.
+	// 예상 결과: 문 열린 B/0 뒤 Acknowledge는 Alarm을 유지한다.
+	// 완료 조건: Reset 호출 0, IsRecoveryReady false.
+	[TestMethod]
+	public async Task CycleAsync_AfterSynchronizedOpenDoor_AcknowledgeDoesNotReachRecoveryReady()
+	{
+		var controller = new ThermalController(
+			new Recipe("Test", targetTemperature: 30d, safetyTemperature: 35d),
+			SimulationSettings.Illustrative);
+		controller.Start();
+		var sourceA = new PlcSourceTransportIncarnation(Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"));
+		var sourceB = new PlcSourceTransportIncarnation(Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"));
+		var plc = new RecordingPlcClient(
+			new PlcInputSnapshot(true, true, 20d, PlcMachineState.Idle, 0, 100, sourceA),
+			new PlcInputSnapshot(false, true, 21d, PlcMachineState.Idle, 0, 0, sourceB))
+		{
+			CurrentSourceOverride = sourceA
+		};
+		await using var coordinator = new EquipmentCoordinator(controller, plc);
+		await coordinator.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		plc.FailNextReadKeepingConnection = true;
+		await coordinator.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		plc.ForceConnected(sourceB);
+		await coordinator.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		controller.AcknowledgeAlarm();
+		Assert.AreEqual(ControllerState.Alarm, controller.Snapshot.State);
+		Assert.IsFalse(controller.Snapshot.IsRecoveryReady);
+		Assert.IsFalse(controller.EventHistory.Any(entry => entry.Event == "Reset"));
+	}
+
 	private sealed class ThrowOnThirdTimestampTimeProvider : TimeProvider
 	{
 		private readonly Exception _exception;

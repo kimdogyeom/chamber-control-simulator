@@ -441,4 +441,52 @@ public sealed class ThermalControllerTests
 		Assert.HasCount(eventCountBeforeBypassAttempts + 1, heatingController.EventHistory);
 		Assert.AreEqual("Acknowledgement", heatingController.EventHistory[^1].Event);
 	}
+
+	// 목적: 통신 손실 뒤 자격 있는 안전 증거와 그 다음 Acknowledge만 Recovery-ready를 만드는지 검증한다.
+	// 예상 결과: 증거 전 Acknowledge는 Alarm이고, 안전 증거 뒤 새 Acknowledge만 Recovery이며 Reset은 호출되지 않는다.
+	// 완료 조건: CommunicationLost pending 조건이 증거 후에만 해제되고 CanReset은 true여도 Reset 횟수는 0이다.
+	[TestMethod]
+	public void ReportFreshSafeCommunicationEvidence_ThenNewAcknowledge_ReachesRecoveryReadyWithoutReset()
+	{
+		var controller = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
+		controller.Start();
+		controller.ReportCommunicationLost();
+		controller.AcknowledgeAlarm();
+
+		Assert.AreEqual(ControllerState.Alarm, controller.Snapshot.State);
+		Assert.AreEqual(AlarmKind.CommunicationLost, controller.Snapshot.ActiveAlarm);
+		Assert.IsFalse(controller.Snapshot.IsRecoveryReady);
+
+		controller.ReportFreshSafeCommunicationEvidence();
+		Assert.AreEqual(ControllerState.Alarm, controller.Snapshot.State);
+		Assert.IsFalse(controller.Snapshot.IsRecoveryReady);
+
+		controller.AcknowledgeAlarm();
+
+		Assert.AreEqual(ControllerState.Recovery, controller.Snapshot.State);
+		Assert.IsTrue(controller.Snapshot.IsRecoveryReady);
+		Assert.IsTrue(controller.Snapshot.CanReset);
+		Assert.IsFalse(controller.EventHistory.Any(entry => entry.Event == "Reset"));
+	}
+
+	// 목적: 통신 손실 뒤 문 열림 같은 불안전 입력에서는 Acknowledge해도 Recovery-ready가 되지 않는지 검증한다.
+	// 예상 결과: DoorOpen이 남아 Alarm이며 IsRecoveryReady는 false다.
+	// 완료 조건: Reset은 호출되지 않고 CommunicationLost 단독 해소로 Recovery에 들어가지 않는다.
+	[TestMethod]
+	public void AcknowledgeAlarm_AfterCommunicationLostWithOpenDoor_DoesNotBecomeRecoveryReady()
+	{
+		var controller = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
+		controller.Start();
+		controller.ReportCommunicationLost();
+		controller.ApplyObservation(
+			new ThermalObservation(isDoorOpen: true, sensorHealthy: true, currentTemperature: 20d),
+			TimeSpan.Zero);
+		controller.ReportFreshSafeCommunicationEvidence();
+		controller.AcknowledgeAlarm();
+
+		Assert.AreEqual(ControllerState.Alarm, controller.Snapshot.State);
+		Assert.IsFalse(controller.Snapshot.IsRecoveryReady);
+		Assert.IsFalse(controller.Snapshot.CanReset);
+		Assert.IsFalse(controller.EventHistory.Any(entry => entry.Event == "Reset"));
+	}
 }

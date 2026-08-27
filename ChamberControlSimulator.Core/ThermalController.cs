@@ -18,6 +18,7 @@ public sealed class ThermalController
 	private AlarmKind? _activeAlarm;
 	private bool _alarmAcknowledged;
 	private bool _recoveryReady;
+	private bool _freshSafeCommunicationEvidence;
 	private ControllerCommandReservation? _commandReservation;
 	private readonly IReadOnlyList<EventLogEntry> _eventHistory;
 
@@ -137,6 +138,23 @@ public sealed class ThermalController
 
 		RaiseAlarm(AlarmKind.CommunicationLost);
 	}
+	public void ReportFreshSafeCommunicationEvidence()
+	{
+		if (!_pendingAlarms.Contains(AlarmKind.CommunicationLost))
+		{
+			return;
+		}
+
+		if (_doorOpen || _currentTemperature >= _recipe.SafetyTemperature || _feedbackPaused)
+		{
+			return;
+		}
+
+		_freshSafeCommunicationEvidence = true;
+		_alarmAcknowledged = false;
+		TryMarkRecoveryReady();
+	}
+
 
 	public void ApplyObservation(
 		ThermalObservation observation,
@@ -308,6 +326,7 @@ public sealed class ThermalController
 				_pendingAlarms.Clear();
 				_alarmAcknowledged = false;
 				_recoveryReady = false;
+				_freshSafeCommunicationEvidence = false;
 				_feedbackPaused = false;
 				_feedbackPausedElapsed = TimeSpan.Zero;
 				AddEvent("Stop");
@@ -318,6 +337,7 @@ public sealed class ThermalController
 				_activeAlarm = null;
 				_alarmAcknowledged = false;
 				_recoveryReady = false;
+				_freshSafeCommunicationEvidence = false;
 				_feedbackPausedElapsed = TimeSpan.Zero;
 				_state = ControllerState.Idle;
 				AddEvent("Reset");
@@ -359,6 +379,10 @@ public sealed class ThermalController
 		_activeAlarm ??= alarm;
 		_alarmAcknowledged = false;
 		_recoveryReady = false;
+		if (alarm == AlarmKind.CommunicationLost)
+		{
+			_freshSafeCommunicationEvidence = false;
+		}
 		_state = ControllerState.Alarm;
 		MarkReservationInvalidIfIneligible();
 		AddEvent(isNewAlarm ? $"Alarm: {alarm}" : $"Alarm reasserted: {alarm}", alarm);
@@ -410,7 +434,7 @@ public sealed class ThermalController
 		AlarmKind.DoorOpen => !_doorOpen,
 		AlarmKind.OverTemperature => _currentTemperature < _recipe.SafetyTemperature,
 		AlarmKind.SensorTimeout => !_feedbackPaused && _hasFreshFeedbackTick,
-		AlarmKind.CommunicationLost => false,
+		AlarmKind.CommunicationLost => _freshSafeCommunicationEvidence,
 		_ => false
 	};
 	private void TransitionTo(ControllerState state)

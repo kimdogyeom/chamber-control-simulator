@@ -162,6 +162,11 @@ public sealed class EquipmentCoordinator : IAsyncDisposable
 					sensorHealthy: input.SensorHealthy,
 					currentTemperature: input.CurrentTemperature),
 				elapsed);
+			if (input.DoorClosed && input.SensorHealthy)
+			{
+				_controller.ReportFreshSafeCommunicationEvidence();
+			}
+
 			CompleteSynchronization();
 
 			return CreateResult(EquipmentCycleDisposition.Completed, input);
