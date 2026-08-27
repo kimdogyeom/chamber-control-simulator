@@ -469,27 +469,46 @@ public sealed class EquipmentPresenterTests
 		}
 	}
 
-	// 목적: P3 coordinator는 observation-only port를 유지하고 WinForms wrapper는 exact command runtime plus narrow input-control만 의존하는지 검증한다.
-	// 예상 결과: coordinator port에는 write가 없고 wrapper constructor는 EquipmentCommandRuntime/IPlcObservationInputControl이며 input control에는 P4 fault API가 없다.
-	// 완료 조건: shared P4 runtime composition이 P3 coordinator 또는 simulation-input facade를 broad client capability로 확장하지 않는다.
+
+	// 목적: ACK 억제와 transport disconnect가 operator command가 아니라 observation runtime simulation API로만 가는지 검증한다.
+	// 예상 결과: SuppressAckCount와 ForceDisconnectCount가 1씩 증가하고 Core snapshot은 직접 바뀌지 않는다.
+	// 완료 조건: fault-injection 경로가 Start/Reset 권한을 호출하지 않는다.
+	[TestMethod]
+	public void FaultInjectionRequests_AreForwardedThroughObservationRuntimeWithoutOperatorCommands()
+	{
+		var view = new FakeEquipmentView();
+		var controller = CreateController();
+		var runtime = new RecordingObservationRuntime(controller, observedTemperature: 20d);
+		_ = CreatePresenter(view, controller, runtime);
+		view.RaiseSuppressNextAcknowledgementRequested();
+		view.RaiseForceTransportDisconnectRequested();
+		Assert.AreEqual(1, runtime.SuppressAckCount);
+		Assert.AreEqual(1, runtime.ForceDisconnectCount);
+		Assert.AreEqual(ControllerState.Idle, controller.Snapshot.State);
+	}
+
+	// 목적: P3 coordinator는 observation-only port를 유지하고 WinForms wrapper는 command runtime plus input-control과 선택적 transport simulation만 의존하는지 검증한다.
+	// 예상 결과: coordinator port에는 write가 없고 wrapper는 EquipmentCommandRuntime/IPlcObservationInputControl/optional VirtualPlcSimulationControl이다.
+	// 완료 조건: input-control facade는 P4 fault API를 갖지 않으며 transport simulation은 별도 선택 인자다.
 	[TestMethod]
 	public void RuntimeComposition_PreservesObservationOnlyP3AndNarrowSimulationInput()
 	{
 		var coordinatorConstructor = typeof(EquipmentCoordinator).GetConstructors()
 			.Single(constructor => constructor.GetParameters().Length == 2);
 		var runtimeConstructor = typeof(EquipmentObservationRuntime).GetConstructors()
-			.Single(constructor => constructor.GetParameters().Length == 2);
+			.Single(constructor => constructor.GetParameters().Length == 3);
 		var coordinatorPort = coordinatorConstructor.GetParameters()[1].ParameterType;
 		var runtimeParameters = runtimeConstructor.GetParameters().Select(parameter => parameter.ParameterType).ToArray();
 
 		Assert.AreEqual("IPlcObservationPort", coordinatorPort.Name);
-		CollectionAssert.AreEqual(
-			new[] { typeof(EquipmentCommandRuntime), typeof(IPlcObservationInputControl) },
-			runtimeParameters);
+		Assert.AreEqual(typeof(EquipmentCommandRuntime), runtimeParameters[0]);
+		Assert.AreEqual(typeof(IPlcObservationInputControl), runtimeParameters[1]);
+		Assert.AreEqual("VirtualPlcSimulationControl", runtimeParameters[2].Name);
 		Assert.IsNull(coordinatorPort.GetMethod("WriteOutputsAsync"));
 		Assert.IsNull(runtimeParameters[1].GetMethod("Advance"));
 		Assert.IsNull(runtimeParameters[1].GetMethod("ForceTransportDisconnect"));
 		Assert.IsNull(runtimeParameters[1].GetMethod("SuppressNextAcknowledgement"));
+		Assert.IsNotNull(typeof(IEquipmentObservationRuntime).GetMethod("ForceTransportDisconnect"));
 		Assert.IsNull(typeof(IEquipmentObservationRuntime).GetMethod("RequestStartAsync"));
 		Assert.IsNull(typeof(IEquipmentObservationRuntime).GetMethod("StopAdmission"));
 		Assert.IsNotNull(typeof(IEquipmentCommandRuntime).GetMethod("RequestStartAsync"));
@@ -783,6 +802,14 @@ public sealed class EquipmentPresenterTests
 		{
 		}
 
+		public void SuppressNextAcknowledgement()
+		{
+		}
+
+		public void ForceTransportDisconnect()
+		{
+		}
+
 		public Task<EquipmentCommandCycleResult> CycleAsync(TimeSpan elapsed, CancellationToken cancellationToken)
 		{
 			_ = DisposeDuringCycle?.Invoke();
@@ -816,6 +843,14 @@ public sealed class EquipmentPresenterTests
 		}
 
 		public void SetDoorClosed(bool doorClosed)
+		{
+		}
+
+		public void SuppressNextAcknowledgement()
+		{
+		}
+
+		public void ForceTransportDisconnect()
 		{
 		}
 
@@ -856,6 +891,14 @@ public sealed class EquipmentPresenterTests
 		{
 		}
 
+		public void SuppressNextAcknowledgement()
+		{
+		}
+
+		public void ForceTransportDisconnect()
+		{
+		}
+
 		public async Task<EquipmentCommandCycleResult> CycleAsync(TimeSpan elapsed, CancellationToken cancellationToken)
 		{
 			_cycleStarted.TrySetResult(true);
@@ -889,6 +932,14 @@ public sealed class EquipmentPresenterTests
 		}
 
 		public void SetDoorClosed(bool doorClosed)
+		{
+		}
+
+		public void SuppressNextAcknowledgement()
+		{
+		}
+
+		public void ForceTransportDisconnect()
 		{
 		}
 
@@ -927,6 +978,14 @@ public sealed class EquipmentPresenterTests
 		}
 
 		public void SetDoorClosed(bool doorClosed)
+		{
+		}
+
+		public void SuppressNextAcknowledgement()
+		{
+		}
+
+		public void ForceTransportDisconnect()
 		{
 		}
 
@@ -971,6 +1030,14 @@ public sealed class EquipmentPresenterTests
 		}
 
 		public void SetDoorClosed(bool doorClosed)
+		{
+		}
+
+		public void SuppressNextAcknowledgement()
+		{
+		}
+
+		public void ForceTransportDisconnect()
 		{
 		}
 
@@ -1045,6 +1112,8 @@ public sealed class EquipmentPresenterTests
 		public void SetCurrentTemperature(double currentTemperature) { }
 		public void SetSensorHealthy(bool sensorHealthy) { }
 		public void SetDoorClosed(bool doorClosed) { }
+		public void SuppressNextAcknowledgement() { }
+		public void ForceTransportDisconnect() { }
 		public Task<EquipmentCommandCycleResult> CycleAsync(TimeSpan elapsed, CancellationToken cancellationToken) =>
 			Task.FromResult(CreateDisconnectedCycle());
 
@@ -1104,6 +1173,14 @@ public sealed class EquipmentPresenterTests
 		{
 		}
 
+		public void SuppressNextAcknowledgement()
+		{
+		}
+
+		public void ForceTransportDisconnect()
+		{
+		}
+
 		public Task<EquipmentCommandCycleResult> CycleAsync(TimeSpan elapsed, CancellationToken cancellationToken)
 		{
 			cancellationToken.ThrowIfCancellationRequested();
@@ -1131,6 +1208,10 @@ public sealed class EquipmentPresenterTests
 		public double? LastRequestedTemperature { get; private set; }
 
 		public void SetDoorClosed(bool doorClosed) => LastDoorClosed = doorClosed;
+		public int SuppressAckCount { get; private set; }
+		public int ForceDisconnectCount { get; private set; }
+		public void SuppressNextAcknowledgement() => SuppressAckCount++;
+		public void ForceTransportDisconnect() => ForceDisconnectCount++;
 
 		public void SetSensorHealthy(bool sensorHealthy) => LastSensorHealthy = sensorHealthy;
 
@@ -1218,6 +1299,8 @@ public sealed class EquipmentPresenterTests
 		public void SetCurrentTemperature(double currentTemperature) { }
 		public void SetSensorHealthy(bool sensorHealthy) { }
 		public void SetDoorClosed(bool doorClosed) { }
+		public void SuppressNextAcknowledgement() { }
+		public void ForceTransportDisconnect() { }
 		public void StopAdmission() { }
 
 		public Task<EquipmentCommandCycleResult> CycleAsync(TimeSpan elapsed, CancellationToken cancellationToken)
@@ -1245,6 +1328,8 @@ public sealed class EquipmentPresenterTests
 		public event EventHandler? ApplyTemperatureRequested;
 		public event EventHandler? PauseFeedbackRequested;
 		public event EventHandler? ResumeFeedbackRequested;
+		public event EventHandler? SuppressNextAcknowledgementRequested;
+		public event EventHandler? ForceTransportDisconnectRequested;
 		public event Func<Task>? ClosingRequested;
 		public event Func<TimerTickedEventArgs, Task>? TimerTicked;
 		public event EventHandler<RecipeSelectionRequestedEventArgs>? RecipeSelectionRequested;
@@ -1287,6 +1372,8 @@ public sealed class EquipmentPresenterTests
 		public void RaiseApplyTemperatureRequested() => ApplyTemperatureRequested?.Invoke(this, EventArgs.Empty);
 		public void RaisePauseFeedbackRequested() => PauseFeedbackRequested?.Invoke(this, EventArgs.Empty);
 		public void RaiseResumeFeedbackRequested() => ResumeFeedbackRequested?.Invoke(this, EventArgs.Empty);
+		public void RaiseSuppressNextAcknowledgementRequested() => SuppressNextAcknowledgementRequested?.Invoke(this, EventArgs.Empty);
+		public void RaiseForceTransportDisconnectRequested() => ForceTransportDisconnectRequested?.Invoke(this, EventArgs.Empty);
 		public void RaiseClosingRequested() => _ = RaiseClosingRequestedAsync();
 
 		public async Task RaiseClosingRequestedAsync()

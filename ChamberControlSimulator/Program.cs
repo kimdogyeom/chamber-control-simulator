@@ -54,7 +54,8 @@ namespace ChamberControlSimulator
 
 			return new EquipmentObservationRuntime(
 				commandRuntime,
-				virtualPlc.ObservationInputControl);
+				virtualPlc.ObservationInputControl,
+				virtualPlc.SimulationControl);
 		}
 	}
 }

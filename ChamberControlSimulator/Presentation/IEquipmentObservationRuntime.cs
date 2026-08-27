@@ -9,6 +9,9 @@ namespace ChamberControlSimulator.Presentation
 		void SetSensorHealthy(bool sensorHealthy);
 
 		void SetDoorClosed(bool doorClosed);
+		void SuppressNextAcknowledgement();
+
+		void ForceTransportDisconnect();
 
 		Task<EquipmentCommandCycleResult> CycleAsync(TimeSpan elapsed, CancellationToken cancellationToken);
 	}

@@ -55,6 +55,9 @@ namespace ChamberControlSimulator
             lblRecoveryReady = new Label();
             lblFeedbackState = new Label();
             lblDoorState = new Label();
+            lblPlcConnection = new Label();
+            lblSynchronization = new Label();
+            lblCommandStatus = new Label();
             pnlSimulation = new Panel();
             grpSimulationInput = new GroupBox();
             nudSimulatedTemperature = new NumericUpDown();
@@ -62,6 +65,8 @@ namespace ChamberControlSimulator
             btnResumeFeedback = new Button();
             btnPauseFeedback = new Button();
             btnDoorToggle = new Button();
+            btnSuppressAck = new Button();
+            btnForceDisconnect = new Button();
             lblSimulationFeedbackText = new Label();
             lblSimulationTempText = new Label();
             lblSimulationDoorText = new Label();
@@ -450,6 +455,8 @@ namespace ChamberControlSimulator
             grpSimulationInput.Controls.Add(btnApplyTemperature);
             grpSimulationInput.Controls.Add(btnResumeFeedback);
             grpSimulationInput.Controls.Add(btnPauseFeedback);
+            grpSimulationInput.Controls.Add(btnForceDisconnect);
+            grpSimulationInput.Controls.Add(btnSuppressAck);
             grpSimulationInput.Controls.Add(btnDoorToggle);
             grpSimulationInput.Controls.Add(lblSimulationFeedbackText);
             grpSimulationInput.Controls.Add(lblSimulationTempText);
@@ -462,7 +469,7 @@ namespace ChamberControlSimulator
             grpSimulationInput.Size = new Size(600, 294);
             grpSimulationInput.TabIndex = 0;
             grpSimulationInput.TabStop = false;
-            grpSimulationInput.Text = "Simulation Input";
+            grpSimulationInput.Text = "Simulation / Fault Injection";
             //
             // nudSimulatedTemperature
             //
@@ -519,6 +526,28 @@ namespace ChamberControlSimulator
             btnDoorToggle.Text = "Open Door";
             btnDoorToggle.UseVisualStyleBackColor = true;
             btnDoorToggle.Click += btnDoorToggle_Click;
+            //
+            // btnSuppressAck
+            //
+            btnSuppressAck.Location = new Point(210, 223);
+            btnSuppressAck.Margin = new Padding(6);
+            btnSuppressAck.Name = "btnSuppressAck";
+            btnSuppressAck.Size = new Size(150, 49);
+            btnSuppressAck.TabIndex = 5;
+            btnSuppressAck.Text = "Suppress ACK";
+            btnSuppressAck.UseVisualStyleBackColor = true;
+            btnSuppressAck.Click += btnSuppressAck_Click;
+            //
+            // btnForceDisconnect
+            //
+            btnForceDisconnect.Location = new Point(372, 223);
+            btnForceDisconnect.Margin = new Padding(6);
+            btnForceDisconnect.Name = "btnForceDisconnect";
+            btnForceDisconnect.Size = new Size(150, 49);
+            btnForceDisconnect.TabIndex = 6;
+            btnForceDisconnect.Text = "Disconnect";
+            btnForceDisconnect.UseVisualStyleBackColor = true;
+            btnForceDisconnect.Click += btnForceDisconnect_Click;
             //
             // lblSimulationFeedbackText
             //
@@ -690,6 +719,8 @@ namespace ChamberControlSimulator
         private ColumnHeader colLogAlarm;
         private Button btnPauseFeedback;
         private Button btnDoorToggle;
+        private Button btnSuppressAck;
+        private Button btnForceDisconnect;
         private NumericUpDown nudSimulatedTemperature;
         private Button btnResumeFeedback;
         private Button btnApplyTemperature;

@@ -16,6 +16,8 @@ namespace ChamberControlSimulator.Presentation
 		event EventHandler? ApplyTemperatureRequested;
 		event EventHandler? PauseFeedbackRequested;
 		event EventHandler? ResumeFeedbackRequested;
+		event EventHandler? SuppressNextAcknowledgementRequested;
+		event EventHandler? ForceTransportDisconnectRequested;
 		event Func<Task>? ClosingRequested;
 
 		event Func<TimerTickedEventArgs, Task>? TimerTicked;

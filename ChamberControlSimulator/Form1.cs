@@ -29,6 +29,8 @@ namespace ChamberControlSimulator
 		public event EventHandler? ApplyTemperatureRequested;
 		public event EventHandler? PauseFeedbackRequested;
 		public event EventHandler? ResumeFeedbackRequested;
+		public event EventHandler? SuppressNextAcknowledgementRequested;
+		public event EventHandler? ForceTransportDisconnectRequested;
 		public event Func<Task>? ClosingRequested;
 		public event Func<TimerTickedEventArgs, Task>? TimerTicked;
 		public event EventHandler<RecipeSelectionRequestedEventArgs>? RecipeSelectionRequested;
@@ -180,6 +182,16 @@ namespace ChamberControlSimulator
 		private void btnResumeFeedback_Click(object sender, EventArgs e)
 		{
 			ResumeFeedbackRequested?.Invoke(this, EventArgs.Empty);
+		}
+
+		private void btnSuppressAck_Click(object sender, EventArgs e)
+		{
+			SuppressNextAcknowledgementRequested?.Invoke(this, EventArgs.Empty);
+		}
+
+		private void btnForceDisconnect_Click(object sender, EventArgs e)
+		{
+			ForceTransportDisconnectRequested?.Invoke(this, EventArgs.Empty);
 		}
 
 		private void cmbRecipe_SelectionChangeCommitted(object? sender, EventArgs e)

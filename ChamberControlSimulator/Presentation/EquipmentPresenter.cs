@@ -48,6 +48,8 @@ namespace ChamberControlSimulator.Presentation
 			_view.ApplyTemperatureRequested += OnApplyTemperatureRequested;
 			_view.PauseFeedbackRequested += OnPauseFeedbackRequested;
 			_view.ResumeFeedbackRequested += OnResumeFeedbackRequested;
+			_view.SuppressNextAcknowledgementRequested += OnSuppressNextAcknowledgementRequested;
+			_view.ForceTransportDisconnectRequested += OnForceTransportDisconnectRequested;
 			_view.ClosingRequested += OnClosingRequestedAsync;
 			_view.TimerTicked += OnTimerTickedAsync;
 			_view.RecipeSelectionRequested += OnRecipeSelectionRequested;
@@ -127,6 +129,8 @@ namespace ChamberControlSimulator.Presentation
 			_view.ApplyTemperatureRequested -= OnApplyTemperatureRequested;
 			_view.PauseFeedbackRequested -= OnPauseFeedbackRequested;
 			_view.ResumeFeedbackRequested -= OnResumeFeedbackRequested;
+			_view.SuppressNextAcknowledgementRequested -= OnSuppressNextAcknowledgementRequested;
+			_view.ForceTransportDisconnectRequested -= OnForceTransportDisconnectRequested;
 			_view.ClosingRequested -= OnClosingRequestedAsync;
 			_view.TimerTicked -= OnTimerTickedAsync;
 			_view.RecipeSelectionRequested -= OnRecipeSelectionRequested;
@@ -232,6 +236,15 @@ namespace ChamberControlSimulator.Presentation
 		{
 			_observationRuntime.SetSensorHealthy(true);
 			RefreshView();
+		}
+		private void OnSuppressNextAcknowledgementRequested(object? sender, EventArgs e)
+		{
+			_observationRuntime.SuppressNextAcknowledgement();
+		}
+
+		private void OnForceTransportDisconnectRequested(object? sender, EventArgs e)
+		{
+			_observationRuntime.ForceTransportDisconnect();
 		}
 
 		private void OnRecipeSelectionRequested(object? sender, RecipeSelectionRequestedEventArgs e)
