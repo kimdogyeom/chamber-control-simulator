@@ -15,7 +15,8 @@ public sealed record PlcInputSnapshot
 		double currentTemperature,
 		PlcMachineState machineState,
 		long acknowledgedCommandId,
-		long observationSequence)
+		long observationSequence,
+		PlcSourceTransportIncarnation sourceTransportIncarnation)
 	{
 		if (!double.IsFinite(currentTemperature))
 		{
@@ -37,12 +38,15 @@ public sealed record PlcInputSnapshot
 			throw new ArgumentOutOfRangeException(nameof(observationSequence));
 		}
 
+		ArgumentNullException.ThrowIfNull(sourceTransportIncarnation);
+
 		DoorClosed = doorClosed;
 		SensorHealthy = sensorHealthy;
 		CurrentTemperature = currentTemperature;
 		MachineState = machineState;
 		AcknowledgedCommandId = acknowledgedCommandId;
 		ObservationSequence = observationSequence;
+		SourceTransportIncarnation = sourceTransportIncarnation;
 	}
 
 	public bool DoorClosed { get; }
@@ -51,4 +55,5 @@ public sealed record PlcInputSnapshot
 	public PlcMachineState MachineState { get; }
 	public long AcknowledgedCommandId { get; }
 	public long ObservationSequence { get; }
+	public PlcSourceTransportIncarnation SourceTransportIncarnation { get; }
 }

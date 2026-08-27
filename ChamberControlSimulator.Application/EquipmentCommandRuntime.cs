@@ -20,6 +20,7 @@ public sealed class EquipmentCommandRuntime : IAsyncDisposable
 		null,
 		null);
 	private EquipmentCycleResult? _latestObservationResult;
+	private PlcSourceTransportIncarnation? _preDispatchSourceIncarnation;
 	private long? _preDispatchObservationSequence;
 	private long? _pendingCommandId;
 	private ControllerCommandKind? _pendingCommandKind;
@@ -149,6 +150,7 @@ public sealed class EquipmentCommandRuntime : IAsyncDisposable
 
 			_pendingCommandId = admission.Admission.CommandId;
 			_pendingCommandKind = admission.Admission.Kind;
+			_preDispatchSourceIncarnation = baseline.InputSnapshot.SourceTransportIncarnation;
 			_preDispatchObservationSequence = baseline.InputSnapshot.ObservationSequence;
 			_writeInvokedTimestamp = _timeProvider.GetTimestamp();
 			_acknowledgementStartedTimestamp = null;
@@ -295,7 +297,9 @@ public sealed class EquipmentCommandRuntime : IAsyncDisposable
 			CurrentState.Disposition != EquipmentCommandLifecycleDisposition.AwaitingAcknowledgement ||
 			observationResult.Disposition != EquipmentCycleDisposition.Completed ||
 			observationResult.InputSnapshot is null ||
+			_preDispatchSourceIncarnation is null ||
 			_preDispatchObservationSequence is null ||
+			observationResult.InputSnapshot.SourceTransportIncarnation != _preDispatchSourceIncarnation ||
 			observationResult.InputSnapshot.ObservationSequence <= _preDispatchObservationSequence.Value)
 		{
 			return;
@@ -349,6 +353,7 @@ public sealed class EquipmentCommandRuntime : IAsyncDisposable
 	{
 		_pendingCommandId = null;
 		_pendingCommandKind = null;
+		_preDispatchSourceIncarnation = null;
 		_preDispatchObservationSequence = null;
 		_writeInvokedTimestamp = null;
 		_acknowledgementStartedTimestamp = null;

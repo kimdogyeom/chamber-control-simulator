@@ -44,7 +44,10 @@ public sealed class EquipmentCoordinator : IAsyncDisposable
 	private readonly IPlcObservationPort _plcClient;
 	private readonly TimeProvider _timeProvider;
 	private readonly ReconnectPolicy _reconnectPolicy;
+	private PlcSourceTransportIncarnation? _lastAcceptedSourceIncarnation;
 	private long? _lastAcceptedObservationSequence;
+	private bool _requireDifferentSourceIncarnation;
+	private bool _requireStrictlyLaterSourceObservation;
 	private long? _reconnectDelayStartedTimestamp;
 	private int _reconnectAttemptCount;
 	private ConnectionSynchronizationState _synchronizationState = ConnectionSynchronizationState.Synchronized;
@@ -136,16 +139,22 @@ public sealed class EquipmentCoordinator : IAsyncDisposable
 			catch (PlcTransportException)
 			{
 				_controller.ReportCommunicationLost();
+				_requireDifferentSourceIncarnation = _lastAcceptedSourceIncarnation is not null;
 				BeginReconnectEpoch();
 				return TransportFailed();
 			}
 
-			if (_lastAcceptedObservationSequence is not null &&
-				input.ObservationSequence <= _lastAcceptedObservationSequence.Value)
+			if (!IsCurrentSourceObservation(input) || !IsSourceFreshObservation(input))
 			{
+				if (_synchronizationState != ConnectionSynchronizationState.ReconnectExhausted)
+				{
+					_synchronizationState = ConnectionSynchronizationState.WaitingForFreshInput;
+				}
+
 				return CreateResult(EquipmentCycleDisposition.StaleObservation, input);
 			}
 
+			_lastAcceptedSourceIncarnation = input.SourceTransportIncarnation;
 			_lastAcceptedObservationSequence = input.ObservationSequence;
 			_controller.ApplyObservation(
 				new ThermalObservation(
@@ -195,9 +204,14 @@ public sealed class EquipmentCoordinator : IAsyncDisposable
 	internal void InvalidateSynchronizationAfterOutputTransportFailure()
 	{
 		ThrowIfDisposed();
+		_requireStrictlyLaterSourceObservation = true;
 		try
 		{
 			BeginReconnectEpoch();
+			if (_plcClient.ConnectionState == PlcConnectionState.Connected)
+			{
+				_synchronizationState = ConnectionSynchronizationState.WaitingForFreshInput;
+			}
 		}
 		catch (Exception exception)
 		{
@@ -313,8 +327,44 @@ public sealed class EquipmentCoordinator : IAsyncDisposable
 		_reconnectEpochActive = false;
 		_reconnectDelayStartedTimestamp = null;
 		_reconnectAttemptCount = 0;
+		_requireDifferentSourceIncarnation = false;
+		_requireStrictlyLaterSourceObservation = false;
 		_synchronizationState = ConnectionSynchronizationState.Synchronized;
 		_lastReconnectFailure = ReconnectFailureKind.None;
+	}
+
+	private bool IsCurrentSourceObservation(PlcInputSnapshot input) =>
+		_plcClient.ConnectionState == PlcConnectionState.Connected &&
+		_plcClient.CurrentSourceTransportIncarnation is { } current &&
+		input.SourceTransportIncarnation == current;
+
+	private bool IsSourceFreshObservation(PlcInputSnapshot input)
+	{
+		if (_requireDifferentSourceIncarnation &&
+			_lastAcceptedSourceIncarnation is { } lastAccepted &&
+			input.SourceTransportIncarnation == lastAccepted)
+		{
+			return false;
+		}
+
+		if (_lastAcceptedSourceIncarnation is { } accepted &&
+			input.SourceTransportIncarnation == accepted &&
+			_lastAcceptedObservationSequence is { } sequence &&
+			input.ObservationSequence <= sequence)
+		{
+			return false;
+		}
+
+		if (_requireStrictlyLaterSourceObservation &&
+			_lastAcceptedSourceIncarnation is { } barrierIncarnation &&
+			input.SourceTransportIncarnation == barrierIncarnation &&
+			_lastAcceptedObservationSequence is { } barrierSequence &&
+			input.ObservationSequence <= barrierSequence)
+		{
+			return false;
+		}
+
+		return true;
 	}
 
 	private EquipmentCycleResult TransportFailed() =>

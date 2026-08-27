@@ -65,24 +65,32 @@ public sealed class VirtualPlcClientLifecycleTests
 			async () => await port.ReadInputsAsync(CancellationToken.None));
 	}
 
-	// 목적: disconnect/reconnect가 field state를 초기화하지 않고 successful read만 observation sequence를 증가시키는지 검증한다.
-	// 예상 결과: reconnect 뒤 door input은 보존되고 두 번째 successful read의 sequence는 1이다.
-	// 완료 조건: reconnect 자체가 synthetic freshness event를 만들지 않는 상태로 test가 통과한다.
+	// 목적: disconnect/reconnect가 plant input은 보존하고 새 source incarnation과 sequence 범위를 여는지 검증한다.
+	// 예상 결과: 첫 read는 A/0, reconnect 뒤 두 번째 successful read는 B/0이며 ConnectAsync만으로는 snapshot이 없다.
+	// 완료 조건: reconnect 자체가 synthetic freshness event를 만들지 않고 door input은 유지된다.
 	[TestMethod]
 	public async Task DisconnectThenReconnect_PreservesInputAndAdvancesSequenceOnlyOnSuccessfulReads()
 	{
 		var client = new VirtualPlcClient(VirtualPlcOptions.Illustrative);
 		IPlcClient port = client;
 		await port.ConnectAsync(CancellationToken.None);
+		Assert.IsNotNull(port.CurrentSourceTransportIncarnation);
+		var firstIncarnation = port.CurrentSourceTransportIncarnation!;
 		client.ObservationInputControl.SetDoorClosed(false);
 
 		var firstRead = await port.ReadInputsAsync(CancellationToken.None);
 		await port.DisconnectAsync(CancellationToken.None);
+		Assert.IsNull(port.CurrentSourceTransportIncarnation);
 		await port.ConnectAsync(CancellationToken.None);
+		Assert.IsNotNull(port.CurrentSourceTransportIncarnation);
+		var secondIncarnation = port.CurrentSourceTransportIncarnation!;
 		var secondRead = await port.ReadInputsAsync(CancellationToken.None);
 
+		Assert.AreEqual(firstIncarnation, firstRead.SourceTransportIncarnation);
 		Assert.AreEqual(0L, firstRead.ObservationSequence);
-		Assert.AreEqual(1L, secondRead.ObservationSequence);
+		Assert.AreNotEqual(firstIncarnation, secondIncarnation);
+		Assert.AreEqual(secondIncarnation, secondRead.SourceTransportIncarnation);
+		Assert.AreEqual(0L, secondRead.ObservationSequence);
 		Assert.IsFalse(secondRead.DoorClosed);
 	}
 

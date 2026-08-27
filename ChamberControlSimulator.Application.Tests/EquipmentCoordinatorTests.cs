@@ -454,8 +454,8 @@ public sealed class EquipmentCoordinatorTests
 			SimulationSettings.Illustrative);
 		var connectCompletion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		var plc = new RecordingPlcClient(
-			new PlcInputSnapshot(true, true, 20d, PlcMachineState.Idle, 0, 1),
-			new PlcInputSnapshot(true, true, 20d, PlcMachineState.Idle, 0, 2))
+			new PlcInputSnapshot(true, true, 20d, PlcMachineState.Idle, 0, 1, new PlcSourceTransportIncarnation(Guid.Parse("11111111-1111-1111-1111-111111111111"))),
+			new PlcInputSnapshot(true, true, 20d, PlcMachineState.Idle, 0, 2, new PlcSourceTransportIncarnation(Guid.Parse("11111111-1111-1111-1111-111111111111"))))
 		{
 			ConnectHandler = _ => connectCompletion.Task
 		};
@@ -488,7 +488,7 @@ public sealed class EquipmentCoordinatorTests
 			SimulationSettings.Illustrative);
 		controller.Start();
 		var plc = new RecordingPlcClient(
-			new PlcInputSnapshot(false, true, 20d, PlcMachineState.Idle, 0, 0));
+			new PlcInputSnapshot(false, true, 20d, PlcMachineState.Idle, 0, 0, new PlcSourceTransportIncarnation(Guid.Parse("11111111-1111-1111-1111-111111111111"))));
 		await using var coordinator = new EquipmentCoordinator(controller, plc);
 
 		var result = await coordinator.CycleAsync(TimeSpan.Zero, CancellationToken.None);
@@ -509,8 +509,8 @@ public sealed class EquipmentCoordinatorTests
 			new Recipe("Test", targetTemperature: 30d, safetyTemperature: 35d),
 			SimulationSettings.Illustrative);
 		var plc = new RecordingPlcClient(
-			new PlcInputSnapshot(true, true, 20d, PlcMachineState.Idle, 0, 1),
-			new PlcInputSnapshot(false, true, 20d, PlcMachineState.Idle, 0, 1));
+			new PlcInputSnapshot(true, true, 20d, PlcMachineState.Idle, 0, 1, new PlcSourceTransportIncarnation(Guid.Parse("11111111-1111-1111-1111-111111111111"))),
+			new PlcInputSnapshot(false, true, 20d, PlcMachineState.Idle, 0, 1, new PlcSourceTransportIncarnation(Guid.Parse("11111111-1111-1111-1111-111111111111"))));
 		await using var coordinator = new EquipmentCoordinator(controller, plc);
 
 		var first = await coordinator.CycleAsync(TimeSpan.Zero, CancellationToken.None);
@@ -537,7 +537,8 @@ public sealed class EquipmentCoordinatorTests
 			currentTemperature: 20d,
 			machineState: PlcMachineState.Idle,
 			acknowledgedCommandId: 0,
-			observationSequence: 0));
+			observationSequence: 0,
+			sourceTransportIncarnation: new PlcSourceTransportIncarnation(Guid.Parse("11111111-1111-1111-1111-111111111111"))));
 		await using var coordinator = new EquipmentCoordinator(controller, plc);
 
 		var result = await coordinator.CycleAsync(TimeSpan.Zero, CancellationToken.None);
@@ -568,7 +569,8 @@ public sealed class EquipmentCoordinatorTests
 			currentTemperature: 20d,
 			machineState: PlcMachineState.Idle,
 			acknowledgedCommandId: 0,
-			observationSequence: 0))
+			observationSequence: 0,
+			sourceTransportIncarnation: new PlcSourceTransportIncarnation(Guid.Parse("11111111-1111-1111-1111-111111111111"))))
 		{
 			ThrowTransportExceptionOnConnect = true
 		};
@@ -634,6 +636,89 @@ public sealed class EquipmentCoordinatorTests
 		Assert.AreEqual(0, plc.WriteCallCount);
 	}
 
+	// 목적: 확인된 typed read fault 뒤 복사된 이전 incarnation 관측을 거부하고 현재 새 incarnation만 동기화하는지 검증한다.
+	// 예상 결과: A/101은 StaleObservation/WaitingForFreshInput이고 Core를 바꾸지 않으며 B/0만 Completed/Synchronized다.
+	// 완료 조건: CommunicationLost는 유지되고 ConnectAsync 추가 호출·출력 쓰기·Recovery 진입이 없다.
+	[TestMethod]
+	public async Task CycleAsync_AfterReadFault_RejectsCopiedOldIncarnationAndAcceptsCurrentReset()
+	{
+		var controller = new ThermalController(
+			new Recipe("Test", targetTemperature: 30d, safetyTemperature: 35d),
+			SimulationSettings.Illustrative);
+		controller.Start();
+		var sourceA = new PlcSourceTransportIncarnation(Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"));
+		var sourceB = new PlcSourceTransportIncarnation(Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"));
+		var plc = new RecordingPlcClient(
+			new PlcInputSnapshot(true, true, 20d, PlcMachineState.Idle, 0, 100, sourceA),
+			new PlcInputSnapshot(false, true, 99d, PlcMachineState.Idle, 0, 101, sourceA),
+			new PlcInputSnapshot(true, true, 21d, PlcMachineState.Idle, 0, 0, sourceB))
+		{
+			CurrentSourceOverride = sourceA
+		};
+		await using var coordinator = new EquipmentCoordinator(controller, plc);
+
+		var accepted = await coordinator.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		plc.FailNextReadKeepingConnection = true;
+		var fault = await coordinator.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		plc.ForceConnected(sourceB);
+		var copied = await coordinator.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		var fresh = await coordinator.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+
+		Assert.AreEqual(EquipmentCycleDisposition.Completed, accepted.Disposition);
+		Assert.AreEqual(EquipmentCycleDisposition.TransportFailed, fault.Disposition);
+		Assert.AreEqual(EquipmentCycleDisposition.StaleObservation, copied.Disposition);
+		Assert.AreEqual(ConnectionSynchronizationState.WaitingForFreshInput, copied.SynchronizationState);
+		Assert.IsFalse(copied.ControllerSnapshot.IsDoorOpen);
+		Assert.AreEqual(20d, copied.ControllerSnapshot.CurrentTemperature);
+		Assert.AreEqual(AlarmKind.CommunicationLost, copied.ControllerSnapshot.ActiveAlarm);
+		Assert.AreEqual(EquipmentCycleDisposition.Completed, fresh.Disposition);
+		Assert.AreEqual(ConnectionSynchronizationState.Synchronized, fresh.SynchronizationState);
+		Assert.AreEqual(21d, fresh.ControllerSnapshot.CurrentTemperature);
+		Assert.AreEqual(AlarmKind.CommunicationLost, fresh.ControllerSnapshot.ActiveAlarm);
+		Assert.AreEqual(ControllerState.Alarm, fresh.ControllerSnapshot.State);
+		Assert.AreEqual(1, plc.ConnectCallCount);
+		Assert.AreEqual(0, plc.WriteCallCount);
+	}
+
+	// 목적: 연결된 observation port에서 output-fault 무효화 뒤 같은 incarnation의 이후 관측만 재동기화하는지 검증한다.
+	// 예상 결과: A/10은 WaitingForFreshInput이고 A/11은 Synchronized이며 ConnectAsync와 retry clock 변화가 없다.
+	// 완료 조건: CommunicationLost는 유지되고 Core Recovery/Reset 권한이나 출력 쓰기가 없다.
+	[TestMethod]
+	public async Task CycleAsync_AfterOutputFaultWhileConnected_RequiresLaterSameIncarnationObservation()
+	{
+		var controller = new ThermalController(
+			new Recipe("Test", targetTemperature: 30d, safetyTemperature: 35d),
+			SimulationSettings.Illustrative);
+		var sourceA = new PlcSourceTransportIncarnation(Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"));
+		var plc = new RecordingPlcClient(
+			new PlcInputSnapshot(true, true, 20d, PlcMachineState.Idle, 0, 10, sourceA),
+			new PlcInputSnapshot(true, true, 20d, PlcMachineState.Idle, 0, 10, sourceA),
+			new PlcInputSnapshot(true, true, 22d, PlcMachineState.Idle, 0, 11, sourceA))
+		{
+			CurrentSourceOverride = sourceA
+		};
+		await using var coordinator = new EquipmentCoordinator(controller, plc);
+		var accepted = await coordinator.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		typeof(EquipmentCoordinator)
+			.GetMethod(
+				"InvalidateSynchronizationAfterOutputTransportFailure",
+				System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+			.Invoke(coordinator, null);
+		var stale = await coordinator.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		var fresh = await coordinator.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+
+		Assert.AreEqual(EquipmentCycleDisposition.Completed, accepted.Disposition);
+		Assert.AreEqual(EquipmentCycleDisposition.StaleObservation, stale.Disposition);
+		Assert.AreEqual(ConnectionSynchronizationState.WaitingForFreshInput, stale.SynchronizationState);
+		Assert.AreEqual(20d, stale.ControllerSnapshot.CurrentTemperature);
+		Assert.AreEqual(EquipmentCycleDisposition.Completed, fresh.Disposition);
+		Assert.AreEqual(ConnectionSynchronizationState.Synchronized, fresh.SynchronizationState);
+		Assert.AreEqual(22d, fresh.ControllerSnapshot.CurrentTemperature);
+		Assert.AreEqual(1, plc.ConnectCallCount);
+		Assert.AreEqual(0, plc.WriteCallCount);
+		Assert.AreEqual(ReconnectFailureKind.None, fresh.LastReconnectFailure);
+	}
+
 	private sealed class ThrowOnThirdTimestampTimeProvider : TimeProvider
 	{
 		private readonly Exception _exception;
@@ -690,6 +775,8 @@ public sealed class EquipmentCoordinatorTests
 		public int ConnectCallCount { get; private set; }
 		public int ReadCallCount { get; private set; }
 		public int WriteCallCount { get; private set; }
+		public PlcSourceTransportIncarnation? CurrentSourceTransportIncarnation { get; private set; } =
+			new PlcSourceTransportIncarnation(Guid.Parse("11111111-1111-1111-1111-111111111111"));
 		public PlcConnectionState ConnectionState
 		{
 			get
@@ -699,6 +786,8 @@ public sealed class EquipmentCoordinatorTests
 				{
 					_connectExternallyAfterNextStateRead = false;
 					_connectionState = PlcConnectionState.Connected;
+					CurrentSourceTransportIncarnation =
+						new PlcSourceTransportIncarnation(Guid.Parse("22222222-2222-2222-2222-222222222222"));
 				}
 
 				return currentState;
@@ -712,6 +801,8 @@ public sealed class EquipmentCoordinatorTests
 			cancellationToken.ThrowIfCancellationRequested();
 			ConnectCallCount++;
 			_connectionState = PlcConnectionState.Connected;
+			CurrentSourceTransportIncarnation =
+				new PlcSourceTransportIncarnation(Guid.Parse("22222222-2222-2222-2222-222222222222"));
 			return Task.CompletedTask;
 		}
 
@@ -719,6 +810,7 @@ public sealed class EquipmentCoordinatorTests
 		{
 			cancellationToken.ThrowIfCancellationRequested();
 			_connectionState = PlcConnectionState.Disconnected;
+			CurrentSourceTransportIncarnation = null;
 			return Task.CompletedTask;
 		}
 
@@ -729,6 +821,7 @@ public sealed class EquipmentCoordinatorTests
 			if (ReadCallCount == 1)
 			{
 				_connectionState = PlcConnectionState.Disconnected;
+				CurrentSourceTransportIncarnation = null;
 				throw new PlcTransportException("Confirmed first read transport failure.");
 			}
 
@@ -738,7 +831,9 @@ public sealed class EquipmentCoordinatorTests
 				currentTemperature: 20d,
 				machineState: PlcMachineState.Idle,
 				acknowledgedCommandId: 0,
-				observationSequence: 1));
+				observationSequence: 1,
+				sourceTransportIncarnation: CurrentSourceTransportIncarnation
+					?? new PlcSourceTransportIncarnation(Guid.Parse("11111111-1111-1111-1111-111111111111"))));
 		}
 
 		public Task<PlcWriteReceipt> WriteOutputsAsync(
@@ -753,6 +848,7 @@ public sealed class EquipmentCoordinatorTests
 		public ValueTask DisposeAsync()
 		{
 			_connectionState = PlcConnectionState.Disconnected;
+			CurrentSourceTransportIncarnation = null;
 			return ValueTask.CompletedTask;
 		}
 	}
@@ -796,6 +892,10 @@ public sealed class EquipmentCoordinatorTests
 		public bool ConnectSucceeds { get; init; }
 		public int? ReadFailureKeepingConnectionState { get; init; }
 		public PlcConnectionState ConnectionState { get; private set; } = PlcConnectionState.Connected;
+		public PlcSourceTransportIncarnation? CurrentSourceTransportIncarnation =>
+			ConnectionState == PlcConnectionState.Connected
+				? new PlcSourceTransportIncarnation(Guid.Parse("11111111-1111-1111-1111-111111111111"))
+				: null;
 
 		public async Task ConnectAsync(CancellationToken cancellationToken)
 		{
@@ -860,6 +960,10 @@ public sealed class EquipmentCoordinatorTests
 		public int ReadCallCount { get; private set; }
 		public int WriteCallCount { get; private set; }
 		public PlcConnectionState ConnectionState { get; private set; }
+		public PlcSourceTransportIncarnation? CurrentSourceTransportIncarnation =>
+			ConnectionState == PlcConnectionState.Connected
+				? new PlcSourceTransportIncarnation(Guid.Parse("11111111-1111-1111-1111-111111111111"))
+				: null;
 
 		public Task ConnectAsync(CancellationToken cancellationToken)
 		{
@@ -920,7 +1024,21 @@ public sealed class EquipmentCoordinatorTests
 		public int WriteCallCount { get; private set; }
 		public bool ThrowTransportExceptionOnConnect { get; init; }
 		public Func<CancellationToken, Task>? ConnectHandler { get; init; }
+		public PlcSourceTransportIncarnation? CurrentSourceOverride { get; set; } =
+			new PlcSourceTransportIncarnation(Guid.Parse("11111111-1111-1111-1111-111111111111"));
+		public PlcConnectionState? ConnectionStateOverride { get; set; }
+		public bool FailNextReadKeepingConnection { get; set; }
+		public void ForceConnected(PlcSourceTransportIncarnation source)
+		{
+			CurrentSourceOverride = source;
+			ConnectionState = PlcConnectionState.Connected;
+		}
+
 		public PlcConnectionState ConnectionState { get; private set; } = PlcConnectionState.Disconnected;
+		public PlcSourceTransportIncarnation? CurrentSourceTransportIncarnation =>
+			ConnectionState == PlcConnectionState.Connected
+				? CurrentSourceOverride
+				: null;
 
 		public async Task ConnectAsync(CancellationToken cancellationToken)
 		{
@@ -934,7 +1052,7 @@ public sealed class EquipmentCoordinatorTests
 			{
 				await ConnectHandler(cancellationToken);
 			}
-			ConnectionState = PlcConnectionState.Connected;
+			ConnectionState = ConnectionStateOverride ?? PlcConnectionState.Connected;
 		}
 
 		public Task DisconnectAsync(CancellationToken cancellationToken)
@@ -948,6 +1066,11 @@ public sealed class EquipmentCoordinatorTests
 		{
 			cancellationToken.ThrowIfCancellationRequested();
 			ReadCallCount++;
+			if (FailNextReadKeepingConnection)
+			{
+				FailNextReadKeepingConnection = false;
+				throw new PlcTransportException("Confirmed read transport failure.");
+			}
 			if (_inputSnapshots.Count == 0)
 			{
 				throw new InvalidOperationException("No input snapshot remains.");

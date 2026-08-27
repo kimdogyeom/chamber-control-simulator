@@ -82,7 +82,7 @@ public sealed class EquipmentCommandRuntimeTests
 
 		Assert.AreSame(transportException, thrown);
 		Assert.AreEqual(EquipmentCycleDisposition.StaleObservation, staleWhileConnected.ObservationResult.Disposition);
-		Assert.AreEqual(ConnectionSynchronizationState.WaitingForReconnect, staleWhileConnected.ObservationResult.SynchronizationState);
+		Assert.AreEqual(ConnectionSynchronizationState.WaitingForFreshInput, staleWhileConnected.ObservationResult.SynchronizationState);
 		Assert.AreEqual(1, connectedConnectCount);
 		Assert.AreEqual(EquipmentCycleDisposition.TransportFailed, beforeBoundary.ObservationResult.Disposition);
 		Assert.AreEqual(1, beforeBoundaryConnectCount);
@@ -598,7 +598,7 @@ public sealed class EquipmentCommandRuntimeTests
 		Assert.AreEqual(1L, timedOut.CommandId);
 		Assert.AreEqual(EquipmentCommandLifecycleDisposition.ReceiptTimedOut, lateCycle.CommandDisposition);
 		Assert.AreEqual(EquipmentCycleDisposition.StaleObservation, lateCycle.ObservationResult.Disposition);
-		Assert.AreEqual(ConnectionSynchronizationState.WaitingForReconnect, lateCycle.ObservationResult.SynchronizationState);
+		Assert.AreEqual(ConnectionSynchronizationState.WaitingForFreshInput, lateCycle.ObservationResult.SynchronizationState);
 		Assert.AreEqual(1, ports.ConnectCount);
 		Assert.AreEqual(EquipmentCommandLifecycleDisposition.ReceiptTimedOut, runtime.CurrentState.Disposition);
 		Assert.AreEqual(1L, runtime.CurrentState.CommandId);
@@ -1148,18 +1148,58 @@ public sealed class EquipmentCommandRuntimeTests
 		return controller;
 	}
 
+	// 목적: 다른 source incarnation의 exact command ID ACK가 이미 인정된 명령을 완료하지 않는지 검증한다.
+	// 예상 결과: B의 exact ACK는 hold/timeout 경로에 남고 write/replay/Core 완료/admission 해제가 없다.
+	// 완료 조건: Idle에서는 CommunicationLost가 생기지 않으며 Recovery/Reset 권한이나 P4 hold 해제가 없다.
+	[TestMethod]
+	public async Task CycleAsync_CrossIncarnationExactAck_DoesNotCompleteAdmittedCommand()
+	{
+		var controller = CreateController();
+		var ports = new ControlledPlcPorts();
+		var sourceA = new PlcSourceTransportIncarnation(Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"));
+		var sourceB = new PlcSourceTransportIncarnation(Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"));
+		ports.CurrentSourceTransportIncarnation = sourceA;
+		ports.EnqueueSnapshot(Snapshot(sequence: 10, source: sourceA));
+		await using var runtime = new EquipmentCommandRuntime(controller, ports, ports, TimeProvider.System);
+		await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		var request = await runtime.RequestStartAsync(CancellationToken.None);
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.AwaitingAcknowledgement, request.Disposition);
+		ports.FailNextRead();
+		var fault = await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		ports.CurrentSourceTransportIncarnation = sourceB;
+		ports.EnqueueSnapshot(Snapshot(sequence: 11, acknowledgedCommandId: request.CommandId!.Value, source: sourceB));
+		var cross = await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		var blockedRetry = await runtime.RequestStartAsync(CancellationToken.None);
+
+		Assert.AreEqual(EquipmentCycleDisposition.TransportFailed, fault.ObservationResult.Disposition);
+		Assert.AreEqual(EquipmentCycleDisposition.Completed, cross.ObservationResult.Disposition);
+		Assert.AreEqual(ConnectionSynchronizationState.Synchronized, cross.ObservationResult.SynchronizationState);
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.AwaitingAcknowledgement, cross.CommandDisposition);
+		Assert.AreEqual(request.CommandId, runtime.CurrentState.CommandId);
+		Assert.IsNull(controller.Snapshot.ActiveAlarm);
+		Assert.AreEqual(ControllerState.Idle, controller.Snapshot.State);
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.AdmissionRejected, blockedRetry.Disposition);
+		Assert.AreEqual(1, ports.WriteCount);
+		Assert.IsEmpty(controller.EventHistory.Where(entry => entry.Event == "Start"));
+	}
+
 	private static ThermalController CreateController() => new(new Recipe(30, 35), SimulationSettings.Illustrative);
+
+	private static readonly PlcSourceTransportIncarnation DefaultSource =
+		new(Guid.Parse("11111111-1111-1111-1111-111111111111"));
 
 	private static PlcInputSnapshot Snapshot(
 		long sequence,
 		long acknowledgedCommandId = 0,
-		bool doorClosed = true) => new(
+		bool doorClosed = true,
+		PlcSourceTransportIncarnation? source = null) => new(
 			doorClosed,
 			sensorHealthy: true,
 			currentTemperature: 20d,
 			PlcMachineState.Idle,
 			acknowledgedCommandId,
-			sequence);
+			sequence,
+			source ?? DefaultSource);
 
 	private sealed class ThrowOnSecondTimestampTimeProvider : TimeProvider
 	{
@@ -1226,6 +1266,8 @@ public sealed class EquipmentCommandRuntimeTests
 		private bool _failNextRead;
 
 		public PlcConnectionState ConnectionState { get; private set; } = PlcConnectionState.Disconnected;
+		public PlcSourceTransportIncarnation? CurrentSourceTransportIncarnation { get; set; } =
+			new PlcSourceTransportIncarnation(Guid.Parse("11111111-1111-1111-1111-111111111111"));
 		public int ConnectCount { get; private set; }
 		public int ReadCount { get; private set; }
 		public int WriteCount { get; private set; }
@@ -1238,13 +1280,19 @@ public sealed class EquipmentCommandRuntimeTests
 
 		public void EnqueueSnapshot(PlcInputSnapshot snapshot) => _snapshots.Enqueue(snapshot);
 		public void FailNextRead() => _failNextRead = true;
-		public void DisconnectForTest() => ConnectionState = PlcConnectionState.Disconnected;
+		public void DisconnectForTest()
+		{
+			ConnectionState = PlcConnectionState.Disconnected;
+			CurrentSourceTransportIncarnation = null;
+		}
 
 		public Task ConnectAsync(CancellationToken cancellationToken)
 		{
 			cancellationToken.ThrowIfCancellationRequested();
 			ConnectCount++;
 			ConnectionState = PlcConnectionState.Connected;
+			CurrentSourceTransportIncarnation ??=
+				new PlcSourceTransportIncarnation(Guid.Parse("11111111-1111-1111-1111-111111111111"));
 			return Task.CompletedTask;
 		}
 
@@ -1305,6 +1353,7 @@ public sealed class EquipmentCommandRuntimeTests
 		public ValueTask DisposeAsync()
 		{
 			ConnectionState = PlcConnectionState.Disconnected;
+			CurrentSourceTransportIncarnation = null;
 			return ValueTask.CompletedTask;
 		}
 

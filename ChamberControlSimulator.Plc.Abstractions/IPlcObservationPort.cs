@@ -4,6 +4,8 @@ public interface IPlcObservationPort : IAsyncDisposable
 {
 	PlcConnectionState ConnectionState { get; }
 
+	PlcSourceTransportIncarnation? CurrentSourceTransportIncarnation { get; }
+
 	Task ConnectAsync(CancellationToken cancellationToken);
 
 	Task DisconnectAsync(CancellationToken cancellationToken);

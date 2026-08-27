@@ -14,6 +14,7 @@ public sealed class VirtualPlcClient : IPlcClient
 	private double _currentTemperature;
 	private long _acknowledgedCommandId;
 	private long _nextObservationSequence;
+	private PlcSourceTransportIncarnation? _currentSourceTransportIncarnation;
 	private TimeSpan _virtualTime;
 
 	public VirtualPlcClient(VirtualPlcOptions options)
@@ -26,6 +27,11 @@ public sealed class VirtualPlcClient : IPlcClient
 
 	public PlcConnectionState ConnectionState { get; private set; } = PlcConnectionState.Disconnected;
 
+	public PlcSourceTransportIncarnation? CurrentSourceTransportIncarnation =>
+		ConnectionState == PlcConnectionState.Connected
+			? _currentSourceTransportIncarnation
+			: null;
+
 	public VirtualPlcObservationInputControl ObservationInputControl { get; }
 
 	public VirtualPlcSimulationControl SimulationControl { get; }
@@ -34,6 +40,12 @@ public sealed class VirtualPlcClient : IPlcClient
 	{
 		cancellationToken.ThrowIfCancellationRequested();
 		ThrowIfDisposed();
+		if (ConnectionState != PlcConnectionState.Connected)
+		{
+			_currentSourceTransportIncarnation = new PlcSourceTransportIncarnation(Guid.NewGuid());
+			_nextObservationSequence = 0;
+		}
+
 		ConnectionState = PlcConnectionState.Connected;
 		return Task.CompletedTask;
 	}
@@ -42,7 +54,7 @@ public sealed class VirtualPlcClient : IPlcClient
 	{
 		cancellationToken.ThrowIfCancellationRequested();
 		ThrowIfDisposed();
-		ConnectionState = PlcConnectionState.Disconnected;
+		ClearSourceTransport();
 		return Task.CompletedTask;
 	}
 
@@ -50,6 +62,8 @@ public sealed class VirtualPlcClient : IPlcClient
 	{
 		cancellationToken.ThrowIfCancellationRequested();
 		EnsureConnected();
+		var incarnation = _currentSourceTransportIncarnation
+			?? throw new PlcTransportException("Virtual PLC source transport incarnation is unavailable.");
 
 		var snapshot = new PlcInputSnapshot(
 			doorClosed: _doorClosed,
@@ -57,7 +71,8 @@ public sealed class VirtualPlcClient : IPlcClient
 			currentTemperature: _currentTemperature,
 			machineState: PlcMachineState.Idle,
 			acknowledgedCommandId: _acknowledgedCommandId,
-			observationSequence: _nextObservationSequence++);
+			observationSequence: _nextObservationSequence++,
+			sourceTransportIncarnation: incarnation);
 
 		return Task.FromResult(snapshot);
 	}
@@ -84,7 +99,7 @@ public sealed class VirtualPlcClient : IPlcClient
 	public ValueTask DisposeAsync()
 	{
 		_disposed = true;
-		ConnectionState = PlcConnectionState.Disconnected;
+		ClearSourceTransport();
 		return ValueTask.CompletedTask;
 	}
 
@@ -139,7 +154,7 @@ public sealed class VirtualPlcClient : IPlcClient
 	internal void ForceTransportDisconnect()
 	{
 		ThrowIfDisposed();
-		ConnectionState = PlcConnectionState.Faulted;
+		ClearSourceTransport(PlcConnectionState.Faulted);
 	}
 
 	internal void SetCurrentTemperature(double currentTemperature)
@@ -214,6 +229,12 @@ public sealed class VirtualPlcClient : IPlcClient
 		{
 			throw new PlcTransportException("Virtual PLC transport is not connected.");
 		}
+	}
+
+	private void ClearSourceTransport(PlcConnectionState connectionState = PlcConnectionState.Disconnected)
+	{
+		_currentSourceTransportIncarnation = null;
+		ConnectionState = connectionState;
 	}
 
 	private void ThrowIfDisposed()
