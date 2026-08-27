@@ -682,7 +682,7 @@ public sealed class EquipmentCoordinatorTests
 
 	// 목적: 연결된 observation port에서 output-fault 무효화 뒤 같은 incarnation의 이후 관측만 재동기화하는지 검증한다.
 	// 예상 결과: A/10은 WaitingForFreshInput이고 A/11은 Synchronized이며 ConnectAsync와 retry clock 변화가 없다.
-	// 완료 조건: CommunicationLost는 유지되고 Core Recovery/Reset 권한이나 출력 쓰기가 없다.
+	// 완료 조건: Idle Core는 알람 없이 유지되고 Recovery/Reset 권한이나 출력 쓰기가 없다.
 	[TestMethod]
 	public async Task CycleAsync_AfterOutputFaultWhileConnected_RequiresLaterSameIncarnationObservation()
 	{

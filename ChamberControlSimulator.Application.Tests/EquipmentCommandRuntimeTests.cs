@@ -566,7 +566,7 @@ public sealed class EquipmentCommandRuntimeTests
 	}
 
 	// 목적: Heating Stop write의 receipt timeout 뒤 늦은 typed 전송 실패가 Core 통신 상실과 observation sync 무효화를 함께 만드는지 검증한다.
-	// 예상 결과: late PlcTransportException 뒤 queued stale read는 WaitingForReconnect이고 ReceiptTimedOut/command ID 1은 유지된다.
+	// 예상 결과: late PlcTransportException 뒤 queued stale read는 WaitingForFreshInput이고 ReceiptTimedOut/command ID 1은 유지된다.
 	// 완료 조건: observation reconnect나 output replay 없이 connect/write 각 1회, Stop 이벤트/예약 해제 없이 admission이 닫혀 있다.
 	[TestMethod]
 	public async Task RequestStopAsync_LateTransportFailureAfterReceiptTimeout_RaisesCommunicationLostAndPreservesHold()
