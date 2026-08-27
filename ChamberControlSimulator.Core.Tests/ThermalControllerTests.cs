@@ -489,4 +489,38 @@ public sealed class ThermalControllerTests
 		Assert.IsFalse(controller.Snapshot.CanReset);
 		Assert.IsFalse(controller.EventHistory.Any(entry => entry.Event == "Reset"));
 	}
+
+	// 목적: CommunicationLost와 DoorOpen이 함께 있으면 통신 증거만으로 Recovery-ready가 되지 않는지 검증한다.
+	// 예상 결과: 안전 통신 증거와 Acknowledge 뒤에도 Alarm이며 DoorOpen이 남는다.
+	// 완료 조건: Reset 호출 0, IsRecoveryReady false.
+	[TestMethod]
+	public void CommunicationLostPlusDoorOpen_CommsOnlyEvidence_DoesNotReachRecoveryReady()
+	{
+		var controller = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
+		controller.Start();
+		controller.ReportCommunicationLost();
+		controller.SetDoorOpen(true);
+		controller.ReportFreshSafeCommunicationEvidence();
+		controller.AcknowledgeAlarm();
+		Assert.AreEqual(ControllerState.Alarm, controller.Snapshot.State);
+		Assert.IsFalse(controller.Snapshot.IsRecoveryReady);
+		Assert.IsFalse(controller.EventHistory.Any(entry => entry.Event == "Reset"));
+	}
+
+	// 목적: CommunicationLost와 OverTemperature가 함께 있으면 통신 증거만으로 Recovery-ready가 되지 않는지 검증한다.
+	// 예상 결과: 안전 통신 증거와 Acknowledge 뒤에도 Alarm이다.
+	// 완료 조건: Reset 호출 0, IsRecoveryReady false.
+	[TestMethod]
+	public void CommunicationLostPlusOverTemperature_CommsOnlyEvidence_DoesNotReachRecoveryReady()
+	{
+		var controller = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
+		controller.Start();
+		controller.ReportCommunicationLost();
+		controller.ReportTemperature(35);
+		controller.ReportFreshSafeCommunicationEvidence();
+		controller.AcknowledgeAlarm();
+		Assert.AreEqual(ControllerState.Alarm, controller.Snapshot.State);
+		Assert.IsFalse(controller.Snapshot.IsRecoveryReady);
+		Assert.IsFalse(controller.EventHistory.Any(entry => entry.Event == "Reset"));
+	}
 }

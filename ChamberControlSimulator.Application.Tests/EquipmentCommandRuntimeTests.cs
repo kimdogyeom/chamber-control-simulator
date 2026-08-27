@@ -1183,6 +1183,37 @@ public sealed class EquipmentCommandRuntimeTests
 		Assert.IsEmpty(controller.EventHistory.Where(entry => entry.Event == "Start"));
 	}
 
+	// 목적: Core가 Recovery-ready여도 미해결 P4 hold가 Reset admission을 막는지 검증한다.
+	// 예상 결과: ReceiptTimedOut hold 중 RequestReset은 AdmissionRejected이고 write는 추가되지 않는다.
+	// 완료 조건: original command ID/hold가 유지되고 Reset 이벤트가 없다.
+	[TestMethod]
+	public async Task RequestResetAsync_WhileReceiptTimedOutHold_RemainsRejectedEvenIfCoreRecoveryReady()
+	{
+		var controller = CreateController();
+		controller.Start();
+		var ports = new ControlledPlcPorts();
+		var timeProvider = new ManualTimeProvider();
+		ports.EnqueueSnapshot(Snapshot(sequence: 1));
+		var writeCompletion = new TaskCompletionSource<PlcWriteReceipt>(TaskCreationOptions.RunContinuationsAsynchronously);
+		ports.WriteHandler = (_, _) => writeCompletion.Task;
+		await using var runtime = new EquipmentCommandRuntime(controller, ports, ports, timeProvider);
+		await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		var stopTask = runtime.RequestStopAsync(CancellationToken.None);
+		await ports.WriteStarted.Task;
+		timeProvider.Advance(TimeSpan.FromSeconds(3));
+		var timedOut = await stopTask;
+		controller.ReportCommunicationLost();
+		controller.ReportFreshSafeCommunicationEvidence();
+		controller.AcknowledgeAlarm();
+		var reset = await runtime.RequestResetAsync(CancellationToken.None);
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.ReceiptTimedOut, timedOut.Disposition);
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.AdmissionRejected, reset.Disposition);
+		Assert.AreEqual(1L, runtime.CurrentState.CommandId);
+		Assert.AreEqual(1, ports.WriteCount);
+		Assert.IsFalse(controller.EventHistory.Any(entry => entry.Event == "Reset"));
+		writeCompletion.SetException(new PlcTransportException("settle after hold"));
+	}
+
 	private static ThermalController CreateController() => new(new Recipe(30, 35), SimulationSettings.Illustrative);
 
 	private static readonly PlcSourceTransportIncarnation DefaultSource =
