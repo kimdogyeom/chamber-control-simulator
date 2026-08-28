@@ -4,9 +4,42 @@ WinForms 기반 가상 열처리 챔버 제어 시뮬레이터입니다. UI, Cor
 
 이 프로젝트는 실제 챔버, 생산 PLC, 산업 통신 프로토콜, 온도 센서, 히터를 제어하지 않습니다. 온도·Recipe·안전 한계·fault는 학습과 검증을 위한 시뮬레이션 값이며, PC 프로그램의 인터록은 E-Stop·Safety PLC·하드웨어 안전회로를 대체하지 않습니다.
 
+## 무엇인지
+
+가상 열처리 챔버 **제어 규칙 시뮬레이터**다. WinForms는 상태를 표시하고, Core가 인터록·Alarm·Recovery를 소유하며, Virtual PLC가 write와 ACK를 분리한다.
+
+## 어떤 어려운 문제를 증명하는가
+
+연결만으로 복구하지 않는다. Connected이면서 `WaitingForFreshInput`일 수 있다. `CommunicationLost`는 동기화된 안전 입력과 **새** Acknowledge 뒤에만 Recovery-ready가 되며, 이 slice는 Reset을 호출하지 않는다. 다른 pending alarm 또는 P4 hold가 있으면 통신 증거만으로 Recovery/Reset이 되지 않는다.
+
+## 어떻게 확인하는가
+
+Windows, frozen Release SHA `2d29933`, SDK 10.0.400:
+
+```powershell
+dotnet restore ChamberControlSimulator.slnx
+dotnet build ChamberControlSimulator.slnx --configuration Release --no-restore
+dotnet test ChamberControlSimulator.slnx --configuration Release --no-build --no-restore
+```
+
+시나리오 테스트명: [`docs/verification/scenario-matrix.md`](docs/verification/scenario-matrix.md). 라이브 창 캡처는 운영자 PNG 대기 ([`p7-t4-app-captures.md`](docs/verification/p7-t4-app-captures.md)). P0 이미지는 현재 UI가 아니다.
+
+## 증거 행
+
+| 증명 | Source | Test/command | Artifact |
+| --- | --- | --- | --- |
+| write와 ACK 분리 | P4 command runtime / Virtual PLC | S06/S07 tests | [P4 closure](docs/verification/p4-final-consistency-closure.md) |
+| typed transport failure → CommunicationLost | `8fabaeb` | S08 tests | [P5-T1](docs/verification/p5-t1-communication-lost.md) |
+| 소켓 재연결 ≠ 동기화 | `fc37338` | S09 tests | [P5-T3](docs/verification/p5-t3-source-synchronization.md) |
+| 안전 증거 + 새 Ack → Recovery-ready, Reset 미호출 | `00a1df2` | S10 tests | [P5-T4](docs/verification/p5-t4-fresh-safe-recovery.md) |
+| 복합 alarm / P4 hold가 Recovery를 막음 | `ee89095` | S11 tests | [P5-T5](docs/verification/p5-t5-composite-alarms.md) |
+| UI는 표시만, 복구를 계산하지 않음 | `ad7e5fc` / `e8f6a28` / `ae99e20` | Presentation tests | [P6-T1](docs/verification/p6-t1-status-rendering.md) |
+
+없는 증거: Reset 성공, Modbus/TCP, 실장비, E-Stop/Safety PLC, 현재 UI 스크린샷.
+
 ## 구현 상태와 증거 상태
 
-아래 표는 `2026-08-19` Windows authoritative worktree를 기준으로 한다. `Completed`는 source local commit, source-bound 자동 검증, frozen review, tracked documentation checkpoint가 모두 있는 상태를 뜻한다.
+아래 표는 Windows authoritative worktree를 기준으로 한다. `Completed`는 source local commit, source-bound 자동 검증, frozen review, tracked documentation checkpoint가 모두 있는 상태를 뜻한다.
 
 | 범위 | evidence state | 근거 |
 | --- | --- | --- |
@@ -29,6 +62,7 @@ WinForms 기반 가상 열처리 챔버 제어 시뮬레이터입니다. UI, Cor
 | P7-T1 scenario matrix | Completed | [scenario-matrix.md](docs/verification/scenario-matrix.md) binds S01–S12 to existing tests; P7-T4 captures remain Planned |
 | P7-T2 clean Release verification | Completed | SHA `2d29933`; SDK 10.0.400; Release 190/190; [receipt](docs/verification/p7-t2-release-verification.md) |
 | P7-T4 app captures | test+log pending operator PNG | no WinForms capture in this session; P0 images not current UI; [status](docs/verification/p7-t4-app-captures.md) |
+| P7-T3 README evidence rewrite | Completed | lead + 6 evidence rows; Reset-success/Modbus/safety demoted |
 
 ## 현재 구현된 책임 경계
 
