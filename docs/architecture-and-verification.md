@@ -368,7 +368,7 @@ P3-T3 (`b949e6c`)에서 legacy `ThermalController.Tick`의 synthetic temperature
 - P2 `VirtualPlcClient`는 deterministic illustrative plant/input simulation을 구현한다.
 - P3-T2 (`3a7398d`)는 fresh PLC input을 Core-owned `ThermalObservation`으로 atomic mapping한다.
 - P3-T3 (`b949e6c`)는 observed temperature와 elapsed를 받는 `ApplyObservation(...)`에서만 normal phase policy가 진행되게 한다.
-- `Tick`은 SensorTimeout/Recovery를 위한 legacy feedback timing을 보존하지만 physical temperature, Holding elapsed, Heating/Holding/Cooling phase를 진행하지 않는다.
+- `Tick` 심볼은 제거됐다. SensorTimeout/Recovery elapsed는 `ApplyObservation`만 사용한다.
 - P4-T4 `EquipmentCommandRuntime`의 injected `TimeProvider` monotonic timestamp만 receipt/ACK deadline을 판정한다. wall clock과 Core에는 deadline authority가 없다.
 - P5-T2 `EquipmentCoordinator`는 같은 injected `TimeProvider`의 monotonic timestamp로 observation reconnect delay 250 ms → +500 ms → +1 s와 failure-time 재기준을 판정한다. wall clock, Core, output path에는 reconnect scheduling authority가 없다.
 

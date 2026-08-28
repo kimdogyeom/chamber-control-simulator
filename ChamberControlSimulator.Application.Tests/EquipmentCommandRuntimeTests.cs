@@ -9,6 +9,61 @@ namespace ChamberControlSimulator.Application.Tests;
 [TestClass]
 public sealed class EquipmentCommandRuntimeTests
 {
+	// 목적: Core Complete이고 heaterEnabled이며 pending이 없으면 CycleAsync가 같은 게이트에서 자동 Stop을 넣는지 검증한다.
+	// 예상 결과: Stop write 1회, IsAutomatic true, Kind Stop, Disposition AwaitingAcknowledgement.
+	// 완료 조건: Alarm 경로가 아니라 Complete 관측 다음 cycle만 자동 Stop을 시작한다.
+	[TestMethod]
+	public async Task CycleAsync_WhenCompleteAndHeaterEnabled_AdmitsAutomaticStop()
+	{
+		var controller = new ThermalController(
+			new Recipe("Fast", 21d, 40d, TimeSpan.FromMilliseconds(1)),
+			new SimulationSettings(20d, TimeSpan.FromSeconds(3)));
+		var ports = new ControlledPlcPorts();
+		ports.EnqueueSnapshot(Snapshot(sequence: 1, currentTemperature: 20d, heaterEnabled: false));
+		await using var runtime = new EquipmentCommandRuntime(controller, ports, ports, TimeProvider.System);
+		await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		await runtime.RequestStartAsync(CancellationToken.None);
+		ports.EnqueueSnapshot(Snapshot(sequence: 2, acknowledgedCommandId: 1, currentTemperature: 20d, heaterEnabled: true));
+		await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		Assert.AreEqual(ControllerState.Heating, controller.Snapshot.State);
+
+		ports.EnqueueSnapshot(Snapshot(sequence: 3, acknowledgedCommandId: 1, currentTemperature: 21d, heaterEnabled: true));
+		await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		Assert.AreEqual(ControllerState.Holding, controller.Snapshot.State);
+		ports.EnqueueSnapshot(Snapshot(sequence: 4, acknowledgedCommandId: 1, currentTemperature: 21d, heaterEnabled: true));
+		await runtime.CycleAsync(TimeSpan.FromMilliseconds(1), CancellationToken.None);
+		Assert.AreEqual(ControllerState.Cooling, controller.Snapshot.State);
+		ports.EnqueueSnapshot(Snapshot(sequence: 5, acknowledgedCommandId: 1, currentTemperature: 20d, heaterEnabled: true));
+		var completeCycle = await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+
+		Assert.AreEqual(ControllerState.Complete, controller.Snapshot.State);
+		Assert.IsTrue(runtime.CurrentState.IsAutomatic);
+		Assert.AreEqual(ControllerCommandKind.Stop, runtime.CurrentState.Kind);
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.AwaitingAcknowledgement, completeCycle.CommandDisposition);
+		Assert.AreEqual(PlcCommandKind.Stop, ports.LastCommand!.Kind);
+		Assert.AreEqual(2, ports.WriteCount);
+	}
+
+	// 목적: Alarm에서는 Complete 자동 Stop이 나가지 않는지 검증한다.
+	// 예상 결과: DoorOpen Alarm cycle 뒤 IsAutomatic false, Stop write 없음.
+	// 완료 조건: 위험 조건이 plant/Core 알람으로만 처리되고 Application 몰래 Stop이 없다.
+	[TestMethod]
+	public async Task CycleAsync_WhenAlarm_DoesNotAdmitAutomaticStop()
+	{
+		var controller = CreateController();
+		ThermalControllerTestCommands.CompleteStart(controller);
+		controller.SetDoorOpen(true);
+		Assert.AreEqual(ControllerState.Alarm, controller.Snapshot.State);
+		var ports = new ControlledPlcPorts();
+		ports.EnqueueSnapshot(Snapshot(sequence: 1, doorClosed: false, heaterEnabled: true));
+		await using var runtime = new EquipmentCommandRuntime(controller, ports, ports, TimeProvider.System);
+		await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+
+		Assert.IsFalse(runtime.CurrentState.IsAutomatic);
+		Assert.AreEqual(0, ports.WriteCount);
+		Assert.AreEqual(ControllerState.Alarm, controller.Snapshot.State);
+	}
+
 	// 목적: confirmed output write fault 뒤 reconnect clock만 실패해도 원래 typed write 경계와 P4 hold가 가려지지 않는지 검증한다.
 	// 예상 결과: 원래 PlcTransportException이 그대로 전파되고 Core CommunicationLost와 ReconciliationRequired ID 1이 유지된다.
 	// 완료 조건: write 1회 뒤 retry/replay/release/Stop 이벤트 없이 secondary TimeProvider failure가 새 알람이나 예외를 대체하지 않는다.
@@ -1223,14 +1278,17 @@ public sealed class EquipmentCommandRuntimeTests
 		long sequence,
 		long acknowledgedCommandId = 0,
 		bool doorClosed = true,
-		PlcSourceTransportIncarnation? source = null) => new(
+		PlcSourceTransportIncarnation? source = null,
+		double currentTemperature = 20d,
+		bool heaterEnabled = false) => new(
 			doorClosed,
 			sensorHealthy: true,
-			currentTemperature: 20d,
+			currentTemperature,
 			PlcMachineState.Idle,
 			acknowledgedCommandId,
 			sequence,
-			source ?? DefaultSource);
+			source ?? DefaultSource,
+			heaterEnabled);
 
 	private sealed class ThrowOnSecondTimestampTimeProvider : TimeProvider
 	{

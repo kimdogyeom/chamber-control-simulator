@@ -100,6 +100,67 @@ public sealed class EquipmentPresenterTests
 		Assert.AreEqual(EquipmentCommandLifecycleDisposition.AdmissionRejected, view.LastStatus!.CommandDisposition);
 		Assert.IsFalse(view.LastStatus.IsAutomatic);
 	}
+	// 목적: Completed InputSnapshot 전에는 Door 토글이 PLC에 쓰지 않는지 검증한다.
+	// 예상 결과: 첫 DoorToggle 후 LastDoorClosed는 null이고, Completed cycle 뒤 토글만 false를 기록한다.
+	// 완료 조건: Core snapshot 문이 아니라 PLC 관측이 세팅된 뒤에만 SetDoorClosed가 호출된다.
+	[TestMethod]
+	public void DoorToggle_BeforeCompletedInputSnapshot_DoesNotWrite()
+	{
+		var view = new FakeEquipmentView();
+		var controller = CreateController();
+		var runtime = new RecordingObservationRuntime(controller, observedTemperature: 20d);
+		_ = CreatePresenter(view, controller, runtime);
+
+		view.RaiseDoorToggleRequested();
+		Assert.IsFalse(runtime.LastDoorClosed.HasValue);
+
+		view.RaiseTimerTicked(TimeSpan.Zero);
+		view.RaiseDoorToggleRequested();
+		Assert.IsTrue(runtime.LastDoorClosed.HasValue);
+		Assert.IsFalse(runtime.LastDoorClosed.Value);
+	}
+
+	// 목적: Complete 자동 Stop 라벨이 Writing/AwaitingAck에서 (auto)를 붙이고 운영자 Stop에는 없는지 검증한다.
+	// 예상 결과: 자동 Stop 상태는 Command : Stop #2 (auto) AwaitingAcknowledgement, 운영자 Stop은 (auto) 없음.
+	// 완료 조건: Event Log를 바꾸지 않고 command 라벨만 구분한다.
+	[TestMethod]
+	public void CommandLabel_AutomaticStop_UsesAutoMarkerOnlyForCompleteStop()
+	{
+		Assert.AreEqual(
+			"Command : Stop #2 (auto) AwaitingAcknowledgement",
+			FormatCommandLabel(new EquipmentStatusViewModel(
+				PlcConnectionState.Connected,
+				ConnectionSynchronizationState.Synchronized,
+				EquipmentCommandLifecycleDisposition.AwaitingAcknowledgement,
+				2,
+				ControllerCommandKind.Stop,
+				true)));
+		Assert.AreEqual(
+			"Command : Stop #2 (auto) Writing",
+			FormatCommandLabel(new EquipmentStatusViewModel(
+				PlcConnectionState.Connected,
+				ConnectionSynchronizationState.Synchronized,
+				EquipmentCommandLifecycleDisposition.Writing,
+				2,
+				ControllerCommandKind.Stop,
+				true)));
+		Assert.AreEqual(
+			"Command : Stop #3 AwaitingAcknowledgement",
+			FormatCommandLabel(new EquipmentStatusViewModel(
+				PlcConnectionState.Connected,
+				ConnectionSynchronizationState.Synchronized,
+				EquipmentCommandLifecycleDisposition.AwaitingAcknowledgement,
+				3,
+				ControllerCommandKind.Stop,
+				false)));
+	}
+
+	private static string FormatCommandLabel(EquipmentStatusViewModel status) =>
+		status.CommandDisposition == EquipmentCommandLifecycleDisposition.NoCommand
+			? "Command : None"
+			: status.IsAutomatic && status.CommandKind == ControllerCommandKind.Stop
+				? $"Command : Stop #{status.CommandId?.ToString() ?? "—"} (auto) {status.CommandDisposition}"
+				: $"Command : {status.CommandKind?.ToString() ?? "—"} #{status.CommandId?.ToString() ?? "—"} {status.CommandDisposition}";
 
 
 	// 목적: observation cycle이 Connected이면서 WaitingForFreshInput이고 command가 AwaitingAck여도 View가 두 상태와 command를 따로 받는지 검증한다.
