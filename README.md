@@ -27,6 +27,7 @@ WinForms 기반 가상 열처리 챔버 제어 시뮬레이터입니다. UI, Cor
 | P6-T2 simulation / fault-injection chrome | Completed | source `e8f6a28`; Simulation / Fault Injection group; Suppress ACK and Disconnect wired to existing `VirtualPlcSimulationControl`; operator commands unchanged; Debug 189/189, manifest `d52a202fc7aafcb211f316900420c69d3a519c0d034988daa31650ecfed7697f`; [P6-T2 receipt](docs/verification/p6-t2-simulation-chrome.md) |
 | P6-T3 event-log connection/command columns | Completed | source `ae99e20`; stamp Connection/Command from last status; append-only watermark preserved; Debug 190/190, manifest `dbc1e85e97bbc3d3b64a57ab020492116d1fabe1bfe3b150b643d62c97eeb3c8`; [P6-T3 receipt](docs/verification/p6-t3-event-log-columns.md) |
 | P7-T1 scenario matrix | Completed | [scenario-matrix.md](docs/verification/scenario-matrix.md) binds S01–S12 to existing tests; P7-T4 captures remain Planned |
+| P7-T2 clean Release verification | Completed | SHA `2d29933`; SDK 10.0.400; Release 190/190; [receipt](docs/verification/p7-t2-release-verification.md) |
 
 ## 현재 구현된 책임 경계
 
