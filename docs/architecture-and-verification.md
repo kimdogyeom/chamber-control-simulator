@@ -56,9 +56,10 @@ PC application의 Door/temperature/sensor interlock은 software policy demonstra
 | P5-T4 fresh-safe CommunicationLost recovery | Completed | `00a1df2` (parent `d2e9f0c`); safe evidence + new Acknowledge → Recovery-ready; Reset not invoked; Debug 184/184, manifest `5900dd7f62240513a7e39160ec307cbecb9260ccad6102997105343c5f95b0f4`; [P5-T4 receipt](verification/p5-t4-fresh-safe-recovery.md) |
 | P5-T5 composite CommunicationLost precedence | Completed | `ee89095`; DoorOpen/OT pending and P4 hold block Recovery/Reset; Debug 187/187, manifest `9a48bd4af9b3000eed4e9dee5abc6333b42b05cdd696923d2a6749e27ca3bf76`; [P5-T5 receipt](verification/p5-t5-composite-alarms.md) |
 | P6-T1 connection/command/synchronization status rendering | Completed | `ad7e5fc`; display-only mapping; Debug 188/188, manifest `89f1b835e7f8cfc379ffbc544f0dd110e57a0ea4137e2b12cf7041964065c37c`; [P6-T1 receipt](verification/p6-t1-status-rendering.md) |
-| P6-T2–P6-T3 simulation chrome / event-log columns | Planned | visual fault-injection grouping and Event Log extra columns are not this receipt |
+| P6-T2 simulation / fault-injection chrome | Completed | `e8f6a28`; operator vs Simulation / Fault Injection; Debug 189/189, manifest `d52a202fc7aafcb211f316900420c69d3a519c0d034988daa31650ecfed7697f`; [P6-T2 receipt](verification/p6-t2-simulation-chrome.md) |
+| P6-T3 event-log connection/command columns | Planned | Event Log extra columns are not this receipt |
 
-각 P3/P4/P5/P6-T1 자동 검증 수치는 해당 source SHA와 verification receipt에만 bound된다. P6-T1 수치를 P6-T2/T3, P7 captures, production release 또는 safety claim으로 확장하지 않는다.
+각 P3/P4/P5/P6-T1/T2 자동 검증 수치는 해당 source SHA와 verification receipt에만 bound된다. P6-T2 수치를 P6-T3, P7 captures, production release 또는 safety claim으로 확장하지 않는다.
 
 ## 4. 현재 실행 경계
 

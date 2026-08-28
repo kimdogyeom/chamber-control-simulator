@@ -24,7 +24,8 @@ WinForms 기반 가상 열처리 챔버 제어 시뮬레이터입니다. UI, Cor
 | P5-T4 fresh-safe CommunicationLost recovery | Completed | source `00a1df2` (parent `d2e9f0c`); synchronized safe input + new Acknowledge → Recovery-ready; open-door negative; Reset not invoked; Debug full 184/184, Windows-byte manifest `5900dd7f62240513a7e39160ec307cbecb9260ccad6102997105343c5f95b0f4`, frozen reviews PASS; [P5-T4 receipt](docs/verification/p5-t4-fresh-safe-recovery.md) |
 | P5-T5 composite CommunicationLost precedence | Completed | source `ee89095` (parent `00a1df2`); CL+DoorOpen and CL+OverTemperature comms-only evidence stay Alarm; P4 ReceiptTimedOut hold rejects Reset; Debug full 187/187, manifest `9a48bd4af9b3000eed4e9dee5abc6333b42b05cdd696923d2a6749e27ca3bf76`; [P5-T5 receipt](docs/verification/p5-t5-composite-alarms.md) |
 | P6-T1 connection/command/synchronization status rendering | Completed | source `ad7e5fc`; Presenter maps cycle connection/sync/command; Form displays without computing recovery; Debug 188/188, manifest `89f1b835e7f8cfc379ffbc544f0dd110e57a0ea4137e2b12cf7041964065c37c`; [P6-T1 receipt](docs/verification/p6-t1-status-rendering.md) |
-| P6-T2–P6-T3 simulation chrome / event-log columns | Planned | fault-injection grouping and Event Log connection/command columns are not P6-T1 evidence |
+| P6-T2 simulation / fault-injection chrome | Completed | source `e8f6a28`; Simulation / Fault Injection group; Suppress ACK and Disconnect wired to existing `VirtualPlcSimulationControl`; operator commands unchanged; Debug 189/189, manifest `d52a202fc7aafcb211f316900420c69d3a519c0d034988daa31650ecfed7697f`; [P6-T2 receipt](docs/verification/p6-t2-simulation-chrome.md) |
+| P6-T3 event-log connection/command columns | Planned | Event Log extra columns are not P6-T2 evidence |
 
 ## 현재 구현된 책임 경계
 
@@ -254,4 +255,5 @@ dotnet test ChamberControlSimulator.slnx --configuration Debug --no-build --no-r
 - [`docs/verification/p5-t4-fresh-safe-recovery.md`](docs/verification/p5-t4-fresh-safe-recovery.md): P5-T4 source SHA, Recovery-ready without Reset, Windows 184/184/review evidence, Reset/UI/device nonclaims
 - [`docs/verification/p5-t5-composite-alarms.md`](docs/verification/p5-t5-composite-alarms.md): P5-T5 source SHA, DoorOpen/OT/P4-hold blocks, Windows 187/187/review evidence, Reset-success/UI/device nonclaims
 - [`docs/verification/p6-t1-status-rendering.md`](docs/verification/p6-t1-status-rendering.md): P6-T1 source SHA, display-only connection/sync/command mapping, Windows 188/188/review evidence, T2/T3/P7 nonclaims
+- [`docs/verification/p6-t2-simulation-chrome.md`](docs/verification/p6-t2-simulation-chrome.md): P6-T2 source SHA, Simulation / Fault Injection grouping, Windows 189/189/review evidence, T3/P7 nonclaims
 - local ignored `docs/roadmap/STATUS.md`: 다음 작업 세션용 current progress tracker. tracked verification receipt를 대체하지 않는다.
