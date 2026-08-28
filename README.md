@@ -63,6 +63,7 @@ dotnet test ChamberControlSimulator.slnx --configuration Release --no-build --no
 | P7-T2 clean Release verification | Completed | SHA `2d29933`; SDK 10.0.400; Release 190/190; [receipt](docs/verification/p7-t2-release-verification.md) |
 | P7-T4 app captures | test+log pending operator PNG | no WinForms capture in this session; P0 images not current UI; [status](docs/verification/p7-t4-app-captures.md) |
 | P7-T3 README evidence rewrite | Completed | lead + 6 evidence rows; Reset-success/Modbus/safety demoted |
+| P7-T5 v1.0 receipt | tracked, captures incomplete | [v1.0-release-receipt.md](docs/verification/v1.0-release-receipt.md); no tag/push; live PNGs pending |
 
 ## 현재 구현된 책임 경계
 
@@ -295,4 +296,7 @@ dotnet test ChamberControlSimulator.slnx --configuration Debug --no-build --no-r
 - [`docs/verification/p6-t2-simulation-chrome.md`](docs/verification/p6-t2-simulation-chrome.md): P6-T2 source SHA, Simulation / Fault Injection grouping, Windows 189/189/review evidence, T3/P7 nonclaims
 - [`docs/verification/p6-t3-event-log-columns.md`](docs/verification/p6-t3-event-log-columns.md): P6-T3 source SHA, Event Log connection/command stamp, Windows 190/190/review evidence, P7 nonclaims
 - [`docs/verification/scenario-matrix.md`](docs/verification/scenario-matrix.md): P7-T1 S01–S12 test names, operator steps, Planned capture paths
+- [`docs/verification/p7-t2-release-verification.md`](docs/verification/p7-t2-release-verification.md): Release 190/190 at `2d29933`
+- [`docs/verification/p7-t4-app-captures.md`](docs/verification/p7-t4-app-captures.md): capture gap
+- [`docs/verification/v1.0-release-receipt.md`](docs/verification/v1.0-release-receipt.md): v1.0 verification SHA, no tag
 - local ignored `docs/roadmap/STATUS.md`: 다음 작업 세션용 current progress tracker. tracked verification receipt를 대체하지 않는다.

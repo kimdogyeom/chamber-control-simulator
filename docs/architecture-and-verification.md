@@ -60,6 +60,7 @@ PC application의 Door/temperature/sensor interlock은 software policy demonstra
 | P6-T3 event-log connection/command columns | Completed | `ae99e20`; stamp from last status; watermark preserved; Debug 190/190, manifest `dbc1e85e97bbc3d3b64a57ab020492116d1fabe1bfe3b150b643d62c97eeb3c8`; [P6-T3 receipt](verification/p6-t3-event-log-columns.md) |
 | P7-T1 scenario matrix | Completed | tracked `docs/verification/scenario-matrix.md`; S01–S12 bound to existing tests; captures Planned until P7-T4 |
 | P7-T2 clean Release verification | Completed | `2d29933`; SDK 10.0.400; Release 190/190; [receipt](verification/p7-t2-release-verification.md) |
+| P7-T5 v1.0 receipt | tracked | [v1.0-release-receipt.md](verification/v1.0-release-receipt.md); live captures pending; no tag |
 
 각 P3/P4/P5/P6 자동 검증 수치는 해당 source SHA와 verification receipt에만 bound된다. P6 수치를 P7 captures, production release 또는 safety claim으로 확장하지 않는다.
 
