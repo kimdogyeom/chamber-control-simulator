@@ -72,7 +72,8 @@ public sealed class VirtualPlcClient : IPlcClient
 			machineState: PlcMachineState.Idle,
 			acknowledgedCommandId: _acknowledgedCommandId,
 			observationSequence: _nextObservationSequence++,
-			sourceTransportIncarnation: incarnation);
+			sourceTransportIncarnation: incarnation,
+			heaterEnabled: _heaterEnabled);
 
 		return Task.FromResult(snapshot);
 	}
@@ -146,6 +147,11 @@ public sealed class VirtualPlcClient : IPlcClient
 		if (_heaterEnabled)
 		{
 			_currentTemperature += _options.HeatingRatePerSecond * elapsed.TotalSeconds;
+			if (_currentTemperature >= _options.OverTemperatureLimit)
+			{
+				_currentTemperature = _options.OverTemperatureLimit;
+				_heaterEnabled = false;
+			}
 		}
 
 		_virtualTime = targetTime;
@@ -173,6 +179,10 @@ public sealed class VirtualPlcClient : IPlcClient
 	{
 		ThrowIfDisposed();
 		_sensorHealthy = sensorHealthy;
+		if (!sensorHealthy)
+		{
+			_heaterEnabled = false;
+		}
 	}
 
 	internal void SuppressNextAcknowledgement()
@@ -185,6 +195,10 @@ public sealed class VirtualPlcClient : IPlcClient
 	{
 		ThrowIfDisposed();
 		_doorClosed = doorClosed;
+		if (!doorClosed)
+		{
+			_heaterEnabled = false;
+		}
 	}
 
 	private void ApplyDueSemanticCommands()
@@ -201,7 +215,7 @@ public sealed class VirtualPlcClient : IPlcClient
 			switch (pending.Kind)
 			{
 				case PlcCommandKind.Start:
-					_heaterEnabled = true;
+					_heaterEnabled = _doorClosed && _sensorHealthy && _currentTemperature < _options.OverTemperatureLimit;
 					break;
 				case PlcCommandKind.Stop:
 					_heaterEnabled = false;

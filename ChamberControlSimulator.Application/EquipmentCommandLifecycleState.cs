@@ -21,7 +21,8 @@ public sealed record EquipmentCommandLifecycleState(
 	long? CommandId,
 	ControllerCommandKind? Kind,
 	long? WriteInvokedTimestamp,
-	long? AcknowledgementStartedTimestamp);
+	long? AcknowledgementStartedTimestamp,
+	bool IsAutomatic = false);
 
 public sealed record EquipmentCommandRequestResult(
 	EquipmentCommandLifecycleDisposition Disposition,

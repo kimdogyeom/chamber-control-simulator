@@ -207,7 +207,7 @@ public sealed class EquipmentCommandCoordinatorTests
 	public async Task TryCompleteAcknowledgedCommand_StopSuccess_ReleasesFenceForNextCommand()
 	{
 		var controller = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
-		controller.Start();
+		ThermalControllerTestCommands.CompleteStart(controller);
 		var coordinator = new EquipmentCommandCoordinator(controller, new ControlledOutputPort());
 		var stop = coordinator.TryAdmit(ControllerCommandKind.Stop).Admission;
 		Assert.IsNotNull(stop);
@@ -670,7 +670,7 @@ public sealed class EquipmentCommandCoordinatorTests
 	private static ThermalController CreateRecoveryReadyController()
 	{
 		var controller = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
-		controller.Start();
+		ThermalControllerTestCommands.CompleteStart(controller);
 		controller.SetDoorOpen(true);
 		controller.SetDoorOpen(false);
 		controller.AcknowledgeAlarm();

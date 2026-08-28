@@ -50,6 +50,56 @@ public sealed class EquipmentPresenterTests
 		Assert.AreEqual(rendersAfterConstruct + 1, view.EventLogRenderCount);
 		Assert.AreEqual(PlcConnectionState.Connected, view.LastStatus!.ConnectionState);
 	}
+	// 목적: WinForms timer cycle이 Virtual PLC Advance를 호출해 ACK delay 뒤 Start가 Core Heating으로 끝나는지 검증한다.
+	// 예상 결과: Start 직후는 AwaitingAcknowledgement/Idle이고, delay보다 큰 elapsed cycle 뒤 Completed/Heating이다.
+	// 완료 조건: UI observation path가 벽시계만 흘리고 virtual semantic time을 멈춘 채 AcknowledgementTimedOut으로 죽지 않는다.
+	[TestMethod]
+	public async Task TimerTicked_AdvancesVirtualPlcAndCompletesStartAfterAcknowledgementDelay()
+	{
+		var view = new FakeEquipmentView();
+		var controller = new ThermalController(
+			new Recipe("Standard", 250, 300),
+			SimulationSettings.Illustrative);
+		var plc = new VirtualPlcClient(new VirtualPlcOptions(20d, 5d, TimeSpan.FromMilliseconds(400)));
+		await using var commandRuntime = new EquipmentCommandRuntime(controller, plc, plc, TimeProvider.System);
+		var observationRuntime = new EquipmentObservationRuntime(
+			commandRuntime,
+			plc.ObservationInputControl,
+			plc.SimulationControl);
+		await using var presenter = CreatePresenter(
+			view,
+			controller,
+			observationRuntime,
+			new EquipmentCommandFacade(commandRuntime));
+
+		await view.RaiseTimerTickedAsync(TimeSpan.Zero);
+		await view.RaiseStartRequestedAsync();
+
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.AwaitingAcknowledgement, view.LastStatus!.CommandDisposition);
+		Assert.AreEqual(ControllerState.Idle, controller.Snapshot.State);
+
+		await view.RaiseTimerTickedAsync(TimeSpan.FromMilliseconds(500));
+
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.Completed, view.LastStatus.CommandDisposition);
+		Assert.AreEqual(ControllerState.Heating, controller.Snapshot.State);
+	}
+	// 목적: Alarm에서 Stop 거절이 command 라벨 disposition으로만 보이는지 검증한다.
+	// 예상 결과: LastStatus.CommandDisposition이 AdmissionRejected이고 IsAutomatic은 false다.
+	// 완료 조건: Event Log 스키마를 바꾸지 않고 거절이 라벨에 남는다.
+	[TestMethod]
+	public async Task StopRequested_WhileAlarm_MapsAdmissionRejectedWithoutAutomaticFlag()
+	{
+		var view = new FakeEquipmentView();
+		var controller = CreateController();
+		ThermalControllerTestCommands.CompleteStart(controller);
+		controller.SetDoorOpen(true);
+		Assert.AreEqual(ControllerState.Alarm, controller.Snapshot.State);
+		var runtime = new PassiveCommandRuntime();
+		await using var presenter = CreatePresenter(view, controller, new PassiveObservationRuntime(), runtime);
+		await view.RaiseStopRequestedAsync();
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.AdmissionRejected, view.LastStatus!.CommandDisposition);
+		Assert.IsFalse(view.LastStatus.IsAutomatic);
+	}
 
 
 	// 목적: observation cycle이 Connected이면서 WaitingForFreshInput이고 command가 AwaitingAck여도 View가 두 상태와 command를 따로 받는지 검증한다.
@@ -60,7 +110,7 @@ public sealed class EquipmentPresenterTests
 	{
 		var view = new FakeEquipmentView();
 		var controller = new ThermalController(new Recipe("Standard", 250, 300), SimulationSettings.Illustrative);
-		controller.Start();
+		ThermalControllerTestCommands.CompleteStart(controller);
 		controller.ReportCommunicationLost();
 		var runtime = new StatusObservationRuntime(
 			controller,
@@ -115,7 +165,7 @@ public sealed class EquipmentPresenterTests
 			SimulationSettings.Illustrative);
 		var runtime = new RecordingObservationRuntime(controller, observedTemperature: 20d);
 		_ = CreatePresenter(view, controller, runtime);
-		controller.Start();
+		ThermalControllerTestCommands.CompleteStart(controller);
 
 		view.RaiseTimerTicked(TimeSpan.FromSeconds(2));
 
@@ -157,6 +207,7 @@ public sealed class EquipmentPresenterTests
 		var controller = CreateController();
 		var runtime = new RecordingObservationRuntime(controller, observedTemperature: 20d);
 		_ = CreatePresenter(view, controller, runtime);
+		view.RaiseTimerTicked(TimeSpan.Zero);
 
 		view.RaiseDoorToggleRequested();
 
@@ -536,6 +587,10 @@ public sealed class EquipmentPresenterTests
 		Assert.IsNotNull(typeof(IEquipmentCommandRuntime).GetMethod("StopAdmission"));
 		Assert.IsNull(typeof(IEquipmentCommandRuntime).GetMethod("CycleAsync"));
 		Assert.IsNull(typeof(IEquipmentCommandRuntime).GetMethod("SetCurrentTemperature"));
+		Assert.IsFalse(typeof(IEquipmentCommandRuntime).IsAssignableFrom(typeof(EquipmentObservationRuntime)));
+		Assert.IsFalse(typeof(IEquipmentObservationRuntime).IsAssignableFrom(typeof(EquipmentCommandFacade)));
+		Assert.IsTrue(typeof(IEquipmentObservationRuntime).IsAssignableFrom(typeof(EquipmentObservationRuntime)));
+		Assert.IsTrue(typeof(IEquipmentCommandRuntime).IsAssignableFrom(typeof(EquipmentCommandFacade)));
 	}
 
 	// 목적: runtime CycleAsync가 raw Task를 반환하기 전에 reentrant DisposeAsync가 발생해도 runtime disposal이 cycle completion보다 앞서지 않는지 검증한다.
@@ -602,7 +657,7 @@ public sealed class EquipmentPresenterTests
 			[standard, highTemperature],
 			SimulationSettings.Illustrative);
 		_ = CreatePresenter(view, controller, new PassiveObservationRuntime());
-		controller.Start();
+		ThermalControllerTestCommands.CompleteStart(controller);
 
 		view.RaiseRecipeSelectionRequested(highTemperature.Name);
 
@@ -644,7 +699,7 @@ public sealed class EquipmentPresenterTests
 	{
 		var view = new FakeEquipmentView();
 		var controller = CreateController();
-		controller.Start();
+		ThermalControllerTestCommands.CompleteStart(controller);
 		var runtime = new BlockingCommandObservationRuntime();
 		await using var presenter = CreatePresenter(view, controller, runtime, runtime);
 
@@ -790,7 +845,7 @@ public sealed class EquipmentPresenterTests
 	private static ThermalController CreateRecoveryReadyController()
 	{
 		var controller = CreateController();
-		controller.Start();
+		ThermalControllerTestCommands.CompleteStart(controller);
 		controller.SetDoorOpen(true);
 		controller.SetDoorOpen(false);
 		controller.AcknowledgeAlarm();
@@ -1078,26 +1133,35 @@ public sealed class EquipmentPresenterTests
 
 	private sealed class PassiveCommandRuntime : IEquipmentCommandRuntime
 	{
-		public EquipmentCommandLifecycleState CurrentState { get; } = new(
+		public EquipmentCommandLifecycleState CurrentState { get; private set; } = new(
 			EquipmentCommandLifecycleDisposition.NoCommand,
 			null,
 			null,
 			null,
 			null);
 
-		public Task<EquipmentCommandRequestResult> RequestStartAsync(CancellationToken cancellationToken)
+		public Task<EquipmentCommandRequestResult> RequestStartAsync(CancellationToken cancellationToken) =>
+			Reject(cancellationToken);
+
+		public Task<EquipmentCommandRequestResult> RequestStopAsync(CancellationToken cancellationToken) =>
+			Reject(cancellationToken);
+
+		public Task<EquipmentCommandRequestResult> RequestResetAsync(CancellationToken cancellationToken) =>
+			Reject(cancellationToken);
+
+		private Task<EquipmentCommandRequestResult> Reject(CancellationToken cancellationToken)
 		{
 			cancellationToken.ThrowIfCancellationRequested();
+			CurrentState = new EquipmentCommandLifecycleState(
+				EquipmentCommandLifecycleDisposition.AdmissionRejected,
+				null,
+				null,
+				null,
+				null);
 			return Task.FromResult(new EquipmentCommandRequestResult(
 				EquipmentCommandLifecycleDisposition.AdmissionRejected,
 				null));
 		}
-
-		public Task<EquipmentCommandRequestResult> RequestStopAsync(CancellationToken cancellationToken) =>
-			RequestStartAsync(cancellationToken);
-
-		public Task<EquipmentCommandRequestResult> RequestResetAsync(CancellationToken cancellationToken) =>
-			RequestStartAsync(cancellationToken);
 
 		public void StopAdmission()
 		{
@@ -1246,7 +1310,7 @@ public sealed class EquipmentPresenterTests
 			_controller.ApplyObservation(
 				new ThermalObservation(isDoorOpen: false, sensorHealthy: true, currentTemperature: _observedTemperature),
 				elapsed);
-			return Task.FromResult(CreateCycle(_controller, PlcConnectionState.Connected, ConnectionSynchronizationState.Synchronized));
+			return Task.FromResult(CreateCycle(_controller, PlcConnectionState.Connected, ConnectionSynchronizationState.Synchronized, includeInputSnapshot: true));
 		}
 
 		public ValueTask DisposeAsync() => ValueTask.CompletedTask;
@@ -1271,13 +1335,24 @@ public sealed class EquipmentPresenterTests
 		PlcConnectionState connectionState,
 		ConnectionSynchronizationState synchronizationState,
 		EquipmentCommandLifecycleDisposition commandDisposition = EquipmentCommandLifecycleDisposition.NoCommand,
-		long? commandId = null) =>
+		long? commandId = null,
+		bool includeInputSnapshot = false) =>
 		new(
 			new EquipmentCycleResult(
 				EquipmentCycleDisposition.Completed,
 				controller.Snapshot,
 				connectionState,
-				null,
+				includeInputSnapshot
+					? new PlcInputSnapshot(
+						doorClosed: true,
+						sensorHealthy: true,
+						currentTemperature: controller.Snapshot.CurrentTemperature,
+						machineState: PlcMachineState.Idle,
+						acknowledgedCommandId: 0,
+						observationSequence: 1,
+						sourceTransportIncarnation: new PlcSourceTransportIncarnation(Guid.Parse("11111111-1111-1111-1111-111111111111")),
+						heaterEnabled: false)
+					: null,
 				synchronizationState,
 				0,
 				ReconnectFailureKind.None),

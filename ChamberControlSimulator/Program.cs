@@ -40,7 +40,7 @@ namespace ChamberControlSimulator
 				form,
 				controller,
 				observationRuntime,
-				observationRuntime);
+				new EquipmentCommandFacade(commandRuntime));
 
 			System.Windows.Forms.Application.Run(form);
 		}

@@ -15,7 +15,7 @@ public sealed class ThermalObservationTests
 		var controller = new ThermalController(
 			new Recipe("Test", targetTemperature: 30d, safetyTemperature: 35d),
 			SimulationSettings.Illustrative);
-		controller.Start();
+		ThermalControllerTestCommands.CompleteStart(controller);
 
 		controller.ApplyObservation(
 			new ThermalObservation(
@@ -37,7 +37,7 @@ public sealed class ThermalObservationTests
 		var controller = new ThermalController(
 			new Recipe("Test", targetTemperature: 30d, safetyTemperature: 35d),
 			SimulationSettings.Illustrative);
-		controller.Start();
+		ThermalControllerTestCommands.CompleteStart(controller);
 
 		controller.ApplyObservation(
 			new ThermalObservation(
@@ -59,7 +59,7 @@ public sealed class ThermalObservationTests
 		var controller = new ThermalController(
 			new Recipe("Test", targetTemperature: 30d, safetyTemperature: 35d),
 			SimulationSettings.Illustrative);
-		controller.Start();
+		ThermalControllerTestCommands.CompleteStart(controller);
 		var unhealthy = new ThermalObservation(false, false, 20d);
 		var healthy = new ThermalObservation(false, true, 20d);
 

@@ -16,7 +16,7 @@ public sealed class EquipmentCommandRuntimeTests
 	public async Task RequestStopAsync_OutputFaultWithReconnectClockFailure_PreservesTypedFaultAndHold()
 	{
 		var controller = CreateController();
-		controller.Start();
+		ThermalControllerTestCommands.CompleteStart(controller);
 		var ports = new ControlledPlcPorts();
 		ports.EnqueueSnapshot(Snapshot(sequence: 1));
 		var transportException = new PlcTransportException("controlled output transport failure");
@@ -51,7 +51,7 @@ public sealed class EquipmentCommandRuntimeTests
 	public async Task RequestStopAsync_DistinctOutputFault_InvalidatesSynchronizationWithoutInventedObservationReconnect()
 	{
 		var controller = CreateController();
-		controller.Start();
+		ThermalControllerTestCommands.CompleteStart(controller);
 		var observationPort = new ControlledPlcPorts();
 		observationPort.EnqueueSnapshot(Snapshot(sequence: 1));
 		var transportException = new PlcTransportException("controlled distinct output transport failure");
@@ -306,7 +306,7 @@ public sealed class EquipmentCommandRuntimeTests
 	public async Task RequestStopAsync_TransportFailure_RaisesCommunicationLostAndPreservesReconciliationHold()
 	{
 		var controller = CreateController();
-		controller.Start();
+		ThermalControllerTestCommands.CompleteStart(controller);
 		var ports = new ControlledPlcPorts();
 		ports.EnqueueSnapshot(Snapshot(sequence: 1));
 		var transportException = new PlcTransportException("controlled write transport failure");
@@ -345,7 +345,7 @@ public sealed class EquipmentCommandRuntimeTests
 	public async Task RequestStopAsync_TimeProviderTransportFailureBeforeWrite_DoesNotRaiseCommunicationLost()
 	{
 		var controller = CreateController();
-		controller.Start();
+		ThermalControllerTestCommands.CompleteStart(controller);
 		var ports = new ControlledPlcPorts();
 		ports.EnqueueSnapshot(Snapshot(sequence: 1));
 		var transportException = new PlcTransportException("controlled TimeProvider transport failure");
@@ -572,7 +572,7 @@ public sealed class EquipmentCommandRuntimeTests
 	public async Task RequestStopAsync_LateTransportFailureAfterReceiptTimeout_RaisesCommunicationLostAndPreservesHold()
 	{
 		var controller = CreateController();
-		controller.Start();
+		ThermalControllerTestCommands.CompleteStart(controller);
 		var ports = new ControlledPlcPorts();
 		var timeProvider = new ManualTimeProvider();
 		ports.EnqueueSnapshot(Snapshot(sequence: 1));
@@ -788,7 +788,7 @@ public sealed class EquipmentCommandRuntimeTests
 	public async Task RequestStopAsync_TransportFailureAtExactReceiptDeadline_TimeoutWinsAndRaisesCommunicationLost()
 	{
 		var controller = CreateController();
-		controller.Start();
+		ThermalControllerTestCommands.CompleteStart(controller);
 		var ports = new ControlledPlcPorts();
 		var timeProvider = new ManualTimeProvider();
 		ports.EnqueueSnapshot(Snapshot(sequence: 1));
@@ -1140,7 +1140,7 @@ public sealed class EquipmentCommandRuntimeTests
 	private static ThermalController CreateRecoveryReadyController()
 	{
 		var controller = CreateController();
-		controller.Start();
+		ThermalControllerTestCommands.CompleteStart(controller);
 		controller.SetDoorOpen(true);
 		controller.SetDoorOpen(false);
 		controller.AcknowledgeAlarm();
@@ -1190,7 +1190,7 @@ public sealed class EquipmentCommandRuntimeTests
 	public async Task RequestResetAsync_WhileReceiptTimedOutHold_RemainsRejectedEvenIfCoreRecoveryReady()
 	{
 		var controller = CreateController();
-		controller.Start();
+		ThermalControllerTestCommands.CompleteStart(controller);
 		var ports = new ControlledPlcPorts();
 		var timeProvider = new ManualTimeProvider();
 		ports.EnqueueSnapshot(Snapshot(sequence: 1));

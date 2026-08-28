@@ -19,6 +19,7 @@ namespace ChamberControlSimulator.Presentation
 			EquipmentCommandLifecycleDisposition.NoCommand,
 			null,
 			null);
+		private bool? _latestDoorClosed;
 		private readonly CancellationTokenSource _shutdown = new();
 		private readonly object _lifecycleLock = new();
 		private Task? _activeCycle;
@@ -143,7 +144,8 @@ namespace ChamberControlSimulator.Presentation
 			{
 				CommandDisposition = command.Disposition,
 				CommandId = command.CommandId,
-				CommandKind = command.Kind
+				CommandKind = command.Kind,
+				IsAutomatic = command.IsAutomatic
 			};
 			_view.ShowSnapshot(_controller.Snapshot);
 			_view.ShowEquipmentStatus(_status);
@@ -214,9 +216,12 @@ namespace ChamberControlSimulator.Presentation
 
 		private void OnDoorToggleRequested(object? sender, EventArgs e)
 		{
-			var nextDoorState = !_controller.Snapshot.IsDoorOpen;
+			if (_latestDoorClosed is null)
+			{
+				return;
+			}
 
-			_observationRuntime.SetDoorClosed(!nextDoorState);
+			_observationRuntime.SetDoorClosed(!_latestDoorClosed.Value);
 			RefreshView();
 		}
 
@@ -348,12 +353,19 @@ namespace ChamberControlSimulator.Presentation
 			try
 			{
 				var cycle = await activeCycle;
+				if (cycle.ObservationResult.Disposition == EquipmentCycleDisposition.Completed &&
+					cycle.ObservationResult.InputSnapshot is not null)
+				{
+					_latestDoorClosed = cycle.ObservationResult.InputSnapshot.DoorClosed;
+				}
+
 				_status = new EquipmentStatusViewModel(
 					cycle.ObservationResult.ConnectionState,
 					cycle.ObservationResult.SynchronizationState,
 					cycle.CommandDisposition,
 					cycle.CommandId,
-					_commandRuntime.CurrentState.Kind);
+					_commandRuntime.CurrentState.Kind,
+					_commandRuntime.CurrentState.IsAutomatic);
 				if (Volatile.Read(ref _isDisposed) == 0)
 				{
 					RefreshView();

@@ -1,5 +1,5 @@
-using ChamberControlSimulator.Core;
 using ChamberControlSimulator.Application;
+using ChamberControlSimulator.Core;
 using ChamberControlSimulator.Plc.Abstractions;
 
 namespace ChamberControlSimulator.Presentation
@@ -9,5 +9,6 @@ namespace ChamberControlSimulator.Presentation
 		ConnectionSynchronizationState SynchronizationState,
 		EquipmentCommandLifecycleDisposition CommandDisposition,
 		long? CommandId,
-		ControllerCommandKind? CommandKind);
+		ControllerCommandKind? CommandKind,
+		bool IsAutomatic = false);
 }

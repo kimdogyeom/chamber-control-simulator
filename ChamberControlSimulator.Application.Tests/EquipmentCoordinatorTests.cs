@@ -203,7 +203,7 @@ public sealed class EquipmentCoordinatorTests
 			timeProvider,
 			ReconnectPolicy.Conservative);
 		await coordinator.CycleAsync(TimeSpan.Zero, CancellationToken.None);
-		controller.Start();
+		ThermalControllerTestCommands.CompleteStart(controller);
 		timeProvider.Advance(TimeSpan.FromMilliseconds(250));
 		using var cancellationSource = new CancellationTokenSource();
 
@@ -292,7 +292,7 @@ public sealed class EquipmentCoordinatorTests
 		var controller = new ThermalController(
 			new Recipe("Test", targetTemperature: 30d, safetyTemperature: 35d),
 			SimulationSettings.Illustrative);
-		controller.Start();
+		ThermalControllerTestCommands.CompleteStart(controller);
 		var exception = new InvalidOperationException("forbidden post-third-read-fault timestamp query");
 		var timeProvider = new RejectPostThirdReadFaultTimestampTimeProvider(exception);
 		var plc = new ReconnectFailingObservationPort
@@ -347,7 +347,7 @@ public sealed class EquipmentCoordinatorTests
 		var controller = new ThermalController(
 			new Recipe("Test", targetTemperature: 30d, safetyTemperature: 35d),
 			SimulationSettings.Illustrative);
-		controller.Start();
+		ThermalControllerTestCommands.CompleteStart(controller);
 		var timeProvider = new ManualTimeProvider();
 		var plc = new ReconnectFailingObservationPort();
 		await using var coordinator = CreateCoordinator(
@@ -486,7 +486,7 @@ public sealed class EquipmentCoordinatorTests
 		var controller = new ThermalController(
 			new Recipe("Test", targetTemperature: 30d, safetyTemperature: 35d),
 			SimulationSettings.Illustrative);
-		controller.Start();
+		ThermalControllerTestCommands.CompleteStart(controller);
 		var plc = new RecordingPlcClient(
 			new PlcInputSnapshot(false, true, 20d, PlcMachineState.Idle, 0, 0, new PlcSourceTransportIncarnation(Guid.Parse("11111111-1111-1111-1111-111111111111"))));
 		await using var coordinator = new EquipmentCoordinator(controller, plc);
@@ -562,7 +562,7 @@ public sealed class EquipmentCoordinatorTests
 		var controller = new ThermalController(
 			new Recipe("Test", targetTemperature: 30d, safetyTemperature: 35d),
 			SimulationSettings.Illustrative);
-		controller.Start();
+		ThermalControllerTestCommands.CompleteStart(controller);
 		var plc = new RecordingPlcClient(new PlcInputSnapshot(
 			doorClosed: true,
 			sensorHealthy: true,
@@ -597,7 +597,7 @@ public sealed class EquipmentCoordinatorTests
 		var controller = new ThermalController(
 			new Recipe("Test", targetTemperature: 30d, safetyTemperature: 35d),
 			SimulationSettings.Illustrative);
-		controller.Start();
+		ThermalControllerTestCommands.CompleteStart(controller);
 		var plc = new TransportFailingObservationPort();
 		using var cancellationSource = new CancellationTokenSource();
 		await using var coordinator = new EquipmentCoordinator(controller, plc);
@@ -620,7 +620,7 @@ public sealed class EquipmentCoordinatorTests
 		var controller = new ThermalController(
 			new Recipe("Test", targetTemperature: 30d, safetyTemperature: 35d),
 			SimulationSettings.Illustrative);
-		controller.Start();
+		ThermalControllerTestCommands.CompleteStart(controller);
 		var plc = new TransportFailingObservationPort(PlcConnectionState.Faulted);
 		await using var coordinator = new EquipmentCoordinator(controller, plc);
 
@@ -645,7 +645,7 @@ public sealed class EquipmentCoordinatorTests
 		var controller = new ThermalController(
 			new Recipe("Test", targetTemperature: 30d, safetyTemperature: 35d),
 			SimulationSettings.Illustrative);
-		controller.Start();
+		ThermalControllerTestCommands.CompleteStart(controller);
 		var sourceA = new PlcSourceTransportIncarnation(Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"));
 		var sourceB = new PlcSourceTransportIncarnation(Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"));
 		var plc = new RecordingPlcClient(
@@ -728,7 +728,7 @@ public sealed class EquipmentCoordinatorTests
 		var controller = new ThermalController(
 			new Recipe("Test", targetTemperature: 30d, safetyTemperature: 35d),
 			SimulationSettings.Illustrative);
-		controller.Start();
+		ThermalControllerTestCommands.CompleteStart(controller);
 		var sourceA = new PlcSourceTransportIncarnation(Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"));
 		var sourceB = new PlcSourceTransportIncarnation(Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"));
 		var plc = new RecordingPlcClient(
@@ -760,7 +760,7 @@ public sealed class EquipmentCoordinatorTests
 		var controller = new ThermalController(
 			new Recipe("Test", targetTemperature: 30d, safetyTemperature: 35d),
 			SimulationSettings.Illustrative);
-		controller.Start();
+		ThermalControllerTestCommands.CompleteStart(controller);
 		var sourceA = new PlcSourceTransportIncarnation(Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"));
 		var sourceB = new PlcSourceTransportIncarnation(Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"));
 		var plc = new RecordingPlcClient(

@@ -264,13 +264,15 @@ P4 ReceiptTimedOut hold
 | --- | --- | --- |
 | `Form1` | UI event 발생과 snapshot/event log rendering | Alarm, Recovery, Reset 판단 / PLC I/O |
 | `IEquipmentView` | View input/output contract | Core 또는 communication policy 소유 |
-| `IEquipmentObservationRuntime` | observation input/cycle/disposal capability | output command request/admission capability |
-| `IEquipmentCommandRuntime` | named Start/Stop/Reset request와 admission stop capability | observation input/cycle, disposal, PLC protocol policy |
-| `EquipmentPresenter` | async observation/Start/Stop/Reset 호출, command/cycle no-overlap ownership, close admission-stop/cancel/join/one-dispose/no-late-render | PLC protocol/ACK/deadline policy 판정 |
-| `EquipmentCoordinator` | `IPlcObservationPort` connect/read, accepted source-identity mapping, active typed read failure → Core `CommunicationLost`, bounded reconnect epoch, P5-T3 source-fresh barrier, synchronized safe input → `ReportFreshSafeCommunicationEvidence` | WinForms Control 접근, output write/replay, command admission, Reset 판단 |
+| `IEquipmentObservationRuntime` | observation input/cycle/disposal; WinForms cycle만 Virtual PLC `Advance` | command 인터페이스 구현, RequestStart/Stop/Reset |
+| `IEquipmentCommandRuntime` | named Start/Stop/Reset request와 admission stop | observation input/cycle, disposal, PLC protocol policy |
+| `EquipmentCommandFacade` | Presenter command 참조. 같은 `EquipmentCommandRuntime._gate` | observation cycle, plant Advance |
+| `EquipmentPresenter` | async observation/Start/Stop/Reset 호출, command/cycle no-overlap, close admission-stop/cancel/join/one-dispose/no-late-render, command 라벨 표시, Door 토글은 Completed PLC snapshot만 | PLC protocol/ACK/deadline 판정, Core snapshot으로 문 토글 |
+| `EquipmentCoordinator` | `IPlcObservationPort` connect/read, accepted source-identity mapping, active typed read failure → Core `CommunicationLost`, bounded reconnect epoch, P5-T3 source-fresh barrier, synchronized safe input → `ReportFreshSafeCommunicationEvidence` | WinForms Control 접근, output write/replay, command admission, Reset 판단, Virtual PLC `Advance` |
 | `EquipmentCommandCoordinator` | opaque Core reservation, one pending command-ID, narrow output one-shot dispatch, transport receipt classification, internal command-family completion request | input observation, timeout recovery, retry/replay, reservation release |
-| `EquipmentCommandRuntime` | Start/Stop/Reset baseline/admission/dispatch, shared P3/P4 serialization, exact fresh ACK same incarnation, monotonic deadlines, actual write typed failure → Core `CommunicationLost` + observation synchronization invalidation; P4 hold blocks Reset even if Core Recovery-ready | observation-port reconnect 추론/제어, retry/replay/release |
-| `ThermalController` | phase, interlock, pending alarms including `CommunicationLost`, Recovery/Reset, recipe, event history | socket, reconnect, Modbus address, async I/O, system clock 직접 접근 |
+| `EquipmentCommandRuntime` | Start/Stop/Reset baseline/admission/dispatch, Complete 다음 자동 Stop(같은 게이트, heaterEnabled), shared P3/P4 serialization, exact fresh ACK same incarnation, monotonic deadlines, actual write typed failure → Core `CommunicationLost` + observation synchronization invalidation; P4 hold blocks Reset even if Core Recovery-ready | observation-port reconnect 추론/제어, retry/replay/release, Alarm 자동 Stop, Core heater 비트 매핑 |
+| `ThermalController` | phase, interlock, pending alarms including `CommunicationLost`, Recovery/Reset, recipe, event history. 판단과 명령 예약만 | I/O, plant 온도 합성, `Start`/`Stop`/`Tick`/`ReportTemperature`, heaterEnabled 정책 |
+| `VirtualPlcClient` | 명령 실행, plant 적분, 문/센서/과온(천장 500) 히터 래치, `heaterEnabled` 관측 비트 | Recipe 소유, Core 구독, 공정 phase |
 | `IPlcObservationPort` | connect/disconnect/read observation contract | output write, UI/Core dependency, simulation fault control |
 | `IPlcOutputPort` | typed one-shot output write only | input read, connection/disposal, UI/Core dependency, simulation controls |
 | `IPlcClient` | empty compatibility composite of observation + output ports | UI/Core dependency, fault injection, reconnect policy |

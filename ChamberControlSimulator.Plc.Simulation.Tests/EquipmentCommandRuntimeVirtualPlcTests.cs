@@ -194,10 +194,44 @@ public sealed class EquipmentCommandRuntimeVirtualPlcTests
 		Assert.AreEqual(20d, second.InputSnapshot.CurrentTemperature);
 		Assert.AreEqual(ControllerState.Idle, controller.Snapshot.State);
 	}
+	// 목적: Core Complete 다음 cycle이 같은 게이트에서 자동 Stop write를 넣고 ACK 뒤 히터를 끄는지 검증한다.
+	// 예상 결과: Complete 관측 후 IsAutomatic Stop이 AwaitingAck가 되고, Advance+cycle 뒤 히터가 꺼진다.
+	// 완료 조건: 관측 래퍼 없이 CommandRuntime.CycleAsync만 Stop admission을 시작한다.
+	[TestMethod]
+	public async Task CycleAsync_WhenCoreCompleteAndHeaterEnabled_AdmitsAutomaticStop()
+	{
+		var plc = new VirtualPlcClient(new VirtualPlcOptions(20d, 5d, TimeSpan.Zero));
+		var controller = new ThermalController(
+			new Recipe("Fast", 21d, 40d, TimeSpan.FromMilliseconds(1)),
+			new SimulationSettings(20d, TimeSpan.FromSeconds(3)));
+		await using var runtime = new EquipmentCommandRuntime(controller, plc, plc, TimeProvider.System);
+		await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		await runtime.RequestStartAsync(CancellationToken.None);
+		plc.SimulationControl.Advance(TimeSpan.FromMilliseconds(1));
+		await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		Assert.AreEqual(ControllerState.Heating, controller.Snapshot.State);
+
+		plc.ObservationInputControl.SetCurrentTemperature(21d);
+		await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		Assert.AreEqual(ControllerState.Holding, controller.Snapshot.State);
+		await runtime.CycleAsync(TimeSpan.FromMilliseconds(1), CancellationToken.None);
+		Assert.AreEqual(ControllerState.Cooling, controller.Snapshot.State);
+		plc.ObservationInputControl.SetCurrentTemperature(20d);
+		var completeCycle = await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+
+		Assert.AreEqual(ControllerState.Complete, controller.Snapshot.State);
+		Assert.IsTrue(runtime.CurrentState.IsAutomatic);
+		Assert.AreEqual(ControllerCommandKind.Stop, runtime.CurrentState.Kind);
+		Assert.AreNotEqual(EquipmentCommandLifecycleDisposition.NoCommand, completeCycle.CommandDisposition);
+
+		plc.SimulationControl.Advance(TimeSpan.FromMilliseconds(1));
+		var afterStopAck = await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		Assert.IsFalse(afterStopAck.ObservationResult.InputSnapshot!.HeaterEnabled);
+	}
 	private static ThermalController CreateRecoveryReadyController()
 	{
 		var controller = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
-		controller.Start();
+		ThermalControllerTestCommands.CompleteStart(controller);
 		controller.SetDoorOpen(true);
 		controller.SetDoorOpen(false);
 		controller.AcknowledgeAlarm();

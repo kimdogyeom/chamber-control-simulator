@@ -45,7 +45,7 @@ public sealed class CommandReservationTests
 	public void TryReserveCommand_Stop_LeavesActiveControllerUnchanged()
 	{
 		var controller = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
-		controller.Start();
+		ThermalControllerTestCommands.CompleteStart(controller);
 		var eventCountBeforeReservation = controller.EventHistory.Count;
 
 		var reservation = controller.TryReserveCommand(ControllerCommandKind.Stop);
@@ -62,7 +62,7 @@ public sealed class CommandReservationTests
 	public void TryReserveCommand_Reset_LeavesRecoveryControllerUnchanged()
 	{
 		var controller = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
-		controller.Start();
+		ThermalControllerTestCommands.CompleteStart(controller);
 		controller.SetDoorOpen(true);
 		controller.SetDoorOpen(false);
 		controller.AcknowledgeAlarm();
@@ -89,7 +89,7 @@ public sealed class CommandReservationTests
 		controller.SetDoorOpen(true);
 		controller.SetDoorOpen(false);
 		var replacementReservation = controller.TryReserveCommand(ControllerCommandKind.Start);
-		controller.Start();
+		ThermalControllerTestCommands.CompleteStart(controller);
 
 		Assert.IsNull(replacementReservation);
 		Assert.AreEqual(ControllerState.Idle, controller.Snapshot.State);
@@ -104,9 +104,7 @@ public sealed class CommandReservationTests
 	{
 		var controller = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
 		Assert.IsNotNull(controller.TryReserveCommand(ControllerCommandKind.Start));
-
-		controller.Start();
-
+		Assert.IsNull(typeof(ThermalController).GetMethod("Start"));
 		Assert.AreEqual(ControllerState.Idle, controller.Snapshot.State);
 		Assert.IsEmpty(controller.EventHistory);
 	}
@@ -158,7 +156,7 @@ public sealed class CommandReservationTests
 	public void TryCompleteAcknowledgedCommand_EligibleOwnedStop_CompletesExactlyOnce()
 	{
 		var controller = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
-		controller.Start();
+		ThermalControllerTestCommands.CompleteStart(controller);
 		var reservation = controller.TryReserveCommand(ControllerCommandKind.Stop);
 		Assert.IsNotNull(reservation);
 
@@ -249,7 +247,7 @@ public sealed class CommandReservationTests
 	private static ThermalController CreateRecoveryReadyController()
 	{
 		var controller = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
-		controller.Start();
+		ThermalControllerTestCommands.CompleteStart(controller);
 		controller.SetDoorOpen(true);
 		controller.SetDoorOpen(false);
 		controller.AcknowledgeAlarm();

@@ -86,10 +86,6 @@ public sealed class ThermalController
 		return true;
 	}
 
-	public void Start()
-	{
-		TryApplyImmediateCommand(ControllerCommandKind.Start);
-	}
 
 	public bool SelectRecipe(string recipeName)
 	{
@@ -112,21 +108,6 @@ public sealed class ThermalController
 		return true;
 	}
 
-	public void ReportTemperature(double temperature)
-	{
-		if (double.IsNaN(temperature) || double.IsInfinity(temperature))
-			throw new ArgumentOutOfRangeException(nameof(temperature));
-
-		_currentTemperature = temperature;
-		MarkReservationInvalidIfIneligible();
-		if (IsSafetyMonitored() && _currentTemperature >= _recipe.SafetyTemperature)
-		{
-			RaiseAlarm(AlarmKind.OverTemperature);
-			return;
-		}
-
-		TryMarkRecoveryReady();
-	}
 
 
 	public void ReportCommunicationLost()
@@ -221,10 +202,6 @@ public sealed class ThermalController
 		PublishSnapshot();
 	}
 
-	public void Stop()
-	{
-		TryApplyImmediateCommand(ControllerCommandKind.Stop);
-	}
 	public void SetDoorOpen(bool isOpen)
 	{
 		_doorOpen = isOpen;
@@ -267,29 +244,6 @@ public sealed class ThermalController
 		TryApplyImmediateCommand(ControllerCommandKind.Reset);
 	}
 
-	public void Tick(TimeSpan elapsed)
-	{
-		if (elapsed < TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(elapsed));
-		_elapsed += elapsed;
-
-		if (_feedbackPaused && IsSafetyMonitored())
-		{
-			_feedbackPausedElapsed += elapsed;
-			if (_feedbackPausedElapsed >= _settings.FeedbackTimeout)
-				RaiseAlarm(AlarmKind.SensorTimeout);
-			else
-				PublishSnapshot();
-			return;
-		}
-
-		if (!_feedbackPaused && elapsed > TimeSpan.Zero && _pendingAlarms.Contains(AlarmKind.SensorTimeout))
-		{
-			_hasFreshFeedbackTick = true;
-			TryMarkRecoveryReady();
-		}
-
-		PublishSnapshot();
-	}
 
 	private bool TryApplyImmediateCommand(ControllerCommandKind kind)
 	{

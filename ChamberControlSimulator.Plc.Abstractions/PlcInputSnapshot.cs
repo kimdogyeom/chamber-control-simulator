@@ -16,7 +16,8 @@ public sealed record PlcInputSnapshot
 		PlcMachineState machineState,
 		long acknowledgedCommandId,
 		long observationSequence,
-		PlcSourceTransportIncarnation sourceTransportIncarnation)
+		PlcSourceTransportIncarnation sourceTransportIncarnation,
+		bool heaterEnabled = false)
 	{
 		if (!double.IsFinite(currentTemperature))
 		{
@@ -47,6 +48,7 @@ public sealed record PlcInputSnapshot
 		AcknowledgedCommandId = acknowledgedCommandId;
 		ObservationSequence = observationSequence;
 		SourceTransportIncarnation = sourceTransportIncarnation;
+		HeaterEnabled = heaterEnabled;
 	}
 
 	public bool DoorClosed { get; }
@@ -56,4 +58,5 @@ public sealed record PlcInputSnapshot
 	public long AcknowledgedCommandId { get; }
 	public long ObservationSequence { get; }
 	public PlcSourceTransportIncarnation SourceTransportIncarnation { get; }
+	public bool HeaterEnabled { get; }
 }

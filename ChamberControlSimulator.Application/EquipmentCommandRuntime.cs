@@ -19,6 +19,7 @@ public sealed class EquipmentCommandRuntime : IAsyncDisposable
 		null,
 		null,
 		null);
+	private bool _isAutomatic;
 	private EquipmentCycleResult? _latestObservationResult;
 	private PlcSourceTransportIncarnation? _preDispatchSourceIncarnation;
 	private long? _preDispatchObservationSequence;
@@ -82,6 +83,7 @@ public sealed class EquipmentCommandRuntime : IAsyncDisposable
 			_latestObservationResult = observationResult;
 			ExpireAcknowledgementIfDue();
 			EvaluateAcknowledgement(observationResult);
+			TryAdmitAutomaticCompleteStopWhileHoldingGate();
 			var state = CurrentState;
 			return new EquipmentCommandCycleResult(
 				observationResult,
@@ -114,6 +116,7 @@ public sealed class EquipmentCommandRuntime : IAsyncDisposable
 
 		if (Volatile.Read(ref _acceptingAdmission) == 0 || HasOutstandingCommand(CurrentState))
 		{
+			_isAutomatic = false;
 			return RejectedRequest();
 		}
 
@@ -154,6 +157,10 @@ public sealed class EquipmentCommandRuntime : IAsyncDisposable
 			_preDispatchObservationSequence = baseline.InputSnapshot.ObservationSequence;
 			_writeInvokedTimestamp = _timeProvider.GetTimestamp();
 			_acknowledgementStartedTimestamp = null;
+			if (kind != ControllerCommandKind.Stop)
+			{
+				_isAutomatic = false;
+			}
 			SetState(
 				EquipmentCommandLifecycleDisposition.Writing,
 				_pendingCommandId,
@@ -340,7 +347,8 @@ public sealed class EquipmentCommandRuntime : IAsyncDisposable
 				commandId,
 				kind,
 				_writeInvokedTimestamp,
-				_acknowledgementStartedTimestamp));
+				_acknowledgementStartedTimestamp,
+				_isAutomatic));
 	}
 
 	private void SetTerminalState(EquipmentCommandLifecycleDisposition disposition) =>
@@ -357,6 +365,71 @@ public sealed class EquipmentCommandRuntime : IAsyncDisposable
 		_preDispatchObservationSequence = null;
 		_writeInvokedTimestamp = null;
 		_acknowledgementStartedTimestamp = null;
+		_isAutomatic = false;
+	}
+
+	private void TryAdmitAutomaticCompleteStopWhileHoldingGate()
+	{
+		if (Volatile.Read(ref _acceptingAdmission) == 0 || HasOutstandingCommand(CurrentState))
+		{
+			return;
+		}
+
+		var observation = _latestObservationResult;
+		if (observation is null ||
+			observation.Disposition != EquipmentCycleDisposition.Completed ||
+			observation.InputSnapshot is null ||
+			!observation.InputSnapshot.HeaterEnabled ||
+			observation.ControllerSnapshot.State != ControllerState.Complete)
+		{
+			return;
+		}
+
+		_isAutomatic = true;
+		var admission = _commandCoordinator.TryAdmitAfter(
+			ControllerCommandKind.Stop,
+			observation.InputSnapshot.AcknowledgedCommandId);
+		if (admission.Disposition != EquipmentCommandAdmissionDisposition.Accepted || admission.Admission is null)
+		{
+			_isAutomatic = false;
+			SetState(EquipmentCommandLifecycleDisposition.AdmissionRejected, null, null);
+			return;
+		}
+
+		_pendingCommandId = admission.Admission.CommandId;
+		_pendingCommandKind = admission.Admission.Kind;
+		_preDispatchSourceIncarnation = observation.InputSnapshot.SourceTransportIncarnation;
+		_preDispatchObservationSequence = observation.InputSnapshot.ObservationSequence;
+		_writeInvokedTimestamp = _timeProvider.GetTimestamp();
+		_acknowledgementStartedTimestamp = null;
+		SetState(
+			EquipmentCommandLifecycleDisposition.Writing,
+			_pendingCommandId,
+			_pendingCommandKind);
+		try
+		{
+			var transport = _commandCoordinator.DispatchPendingAsync(CancellationToken.None)
+				.GetAwaiter()
+				.GetResult();
+			if (transport.Disposition == EquipmentCommandTransportDisposition.AwaitingAcknowledgement)
+			{
+				_acknowledgementStartedTimestamp = _timeProvider.GetTimestamp();
+				SetState(
+					EquipmentCommandLifecycleDisposition.AwaitingAcknowledgement,
+					_pendingCommandId,
+					_pendingCommandKind);
+			}
+			else
+			{
+				SetTerminalState(EquipmentCommandLifecycleDisposition.ReconciliationRequired);
+			}
+		}
+		catch (PlcTransportException)
+		{
+			_controller.ReportCommunicationLost();
+			_observationCoordinator.InvalidateSynchronizationAfterOutputTransportFailure();
+			SetTerminalState(EquipmentCommandLifecycleDisposition.ReconciliationRequired);
+		}
 	}
 
 	private void HandOffGateUntilWriteSettles(Task<EquipmentCommandTransportResult> writeTask) =>

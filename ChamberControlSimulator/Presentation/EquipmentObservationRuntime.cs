@@ -4,7 +4,7 @@ using ChamberControlSimulator.Plc.Simulation;
 
 namespace ChamberControlSimulator.Presentation
 {
-	internal sealed class EquipmentObservationRuntime : IEquipmentObservationRuntime, IEquipmentCommandRuntime
+	internal sealed class EquipmentObservationRuntime : IEquipmentObservationRuntime
 	{
 		private readonly EquipmentCommandRuntime _commandRuntime;
 		private readonly IPlcObservationInputControl _simulationControl;
@@ -19,8 +19,6 @@ namespace ChamberControlSimulator.Presentation
 			_simulationControl = simulationControl ?? throw new ArgumentNullException(nameof(simulationControl));
 			_transportSimulation = transportSimulation;
 		}
-
-		public EquipmentCommandLifecycleState CurrentState => _commandRuntime.CurrentState;
 
 		public void SetCurrentTemperature(double currentTemperature)
 		{
@@ -47,19 +45,11 @@ namespace ChamberControlSimulator.Presentation
 			_transportSimulation?.ForceTransportDisconnect();
 		}
 
-		public Task<EquipmentCommandCycleResult> CycleAsync(TimeSpan elapsed, CancellationToken cancellationToken) =>
-			_commandRuntime.CycleAsync(elapsed, cancellationToken);
-
-		public Task<EquipmentCommandRequestResult> RequestStartAsync(CancellationToken cancellationToken) =>
-			_commandRuntime.RequestStartAsync(cancellationToken);
-
-		public Task<EquipmentCommandRequestResult> RequestStopAsync(CancellationToken cancellationToken) =>
-			_commandRuntime.RequestStopAsync(cancellationToken);
-
-		public Task<EquipmentCommandRequestResult> RequestResetAsync(CancellationToken cancellationToken) =>
-			_commandRuntime.RequestResetAsync(cancellationToken);
-
-		public void StopAdmission() => _commandRuntime.StopAdmission();
+		public async Task<EquipmentCommandCycleResult> CycleAsync(TimeSpan elapsed, CancellationToken cancellationToken)
+		{
+			_transportSimulation?.Advance(elapsed);
+			return await _commandRuntime.CycleAsync(elapsed, cancellationToken).ConfigureAwait(false);
+		}
 
 		public ValueTask DisposeAsync() => _commandRuntime.DisposeAsync();
 	}

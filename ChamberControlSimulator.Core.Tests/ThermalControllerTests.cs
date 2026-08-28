@@ -18,7 +18,7 @@ public sealed class ThermalControllerTests
 		var ambient = new ThermalObservation(isDoorOpen: false, sensorHealthy: true, currentTemperature: 20d);
 		controller.ApplyObservation(initial, TimeSpan.Zero);
 
-		controller.Start();
+		ThermalControllerTestCommands.CompleteStart(controller);
 		Assert.AreEqual(ControllerState.Heating, controller.Snapshot.State);
 
 		controller.ApplyObservation(target, TimeSpan.Zero);
@@ -54,9 +54,9 @@ public sealed class ThermalControllerTests
 			sensorHealthy: true,
 			currentTemperature: 30d);
 		controller.ApplyObservation(observation, TimeSpan.Zero);
-		controller.Start();
+		ThermalControllerTestCommands.CompleteStart(controller);
 
-		controller.Tick(TimeSpan.FromSeconds(2));
+		// Tick removed: no plant elapsed without ApplyObservation.
 
 		Assert.AreEqual(ControllerState.Heating, controller.Snapshot.State);
 		Assert.AreEqual(20d, controller.Snapshot.CurrentTemperature);
@@ -64,7 +64,7 @@ public sealed class ThermalControllerTests
 		controller.ApplyObservation(targetObservation, TimeSpan.Zero);
 		Assert.AreEqual(ControllerState.Holding, controller.Snapshot.State);
 
-		controller.Tick(holdDuration);
+		// Tick removed: Holding elapsed only via ApplyObservation.
 
 		Assert.AreEqual(ControllerState.Holding, controller.Snapshot.State);
 		Assert.AreEqual(30d, controller.Snapshot.CurrentTemperature);
@@ -72,7 +72,7 @@ public sealed class ThermalControllerTests
 		controller.ApplyObservation(targetObservation, holdDuration);
 		Assert.AreEqual(ControllerState.Cooling, controller.Snapshot.State);
 
-		controller.Tick(TimeSpan.FromSeconds(2));
+		// Tick removed: no plant elapsed without ApplyObservation.
 
 		Assert.AreEqual(ControllerState.Cooling, controller.Snapshot.State);
 		Assert.AreEqual(30d, controller.Snapshot.CurrentTemperature);
@@ -84,7 +84,7 @@ public sealed class ThermalControllerTests
 		var controller = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
 
 		controller.SetDoorOpen(true);
-		controller.Start();
+		ThermalControllerTestCommands.CompleteStart(controller);
 
 		Assert.AreEqual(ControllerState.Idle, controller.Snapshot.State);
 		Assert.IsFalse(controller.Snapshot.CanStart);
@@ -95,7 +95,7 @@ public sealed class ThermalControllerTests
 	public void OpenDoor_WhileHeating_EntersDoorOpenAlarm()
 	{
 		var controller = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
-		controller.Start();
+		ThermalControllerTestCommands.CompleteStart(controller);
 
 		controller.SetDoorOpen(true);
 
@@ -110,7 +110,7 @@ public sealed class ThermalControllerTests
 	public void Reset_AfterDoorAlarmIsClosedAndAcknowledged_ReturnsToIdle()
 	{
 		var controller = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
-		controller.Start();
+		ThermalControllerTestCommands.CompleteStart(controller);
 		controller.SetDoorOpen(true);
 
 		controller.SetDoorOpen(false);
@@ -132,9 +132,9 @@ public sealed class ThermalControllerTests
 	public void ReportTemperature_AtSafetyLimit_AlarmsUntilTemperatureIsBelowLimit()
 	{
 		var controller = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
-		controller.Start();
+		ThermalControllerTestCommands.CompleteStart(controller);
 
-		controller.ReportTemperature(35);
+		controller.ApplyObservation(new ThermalObservation(controller.Snapshot.IsDoorOpen, true, 35), TimeSpan.Zero);
 		Assert.AreEqual(ControllerState.Alarm, controller.Snapshot.State);
 		Assert.AreEqual(AlarmKind.OverTemperature, controller.Snapshot.ActiveAlarm);
 
@@ -142,7 +142,7 @@ public sealed class ThermalControllerTests
 		Assert.AreEqual(ControllerState.Alarm, controller.Snapshot.State);
 		Assert.IsFalse(controller.Snapshot.CanReset);
 
-		controller.ReportTemperature(34);
+		controller.ApplyObservation(new ThermalObservation(controller.Snapshot.IsDoorOpen, true, 34), TimeSpan.Zero);
 		Assert.AreEqual(ControllerState.Recovery, controller.Snapshot.State);
 		Assert.IsTrue(controller.Snapshot.CanReset);
 
@@ -154,10 +154,10 @@ public sealed class ThermalControllerTests
 	public void FeedbackPaused_PastTimeout_RequiresResumeAndFreshTickBeforeReset()
 	{
 		var controller = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
-		controller.Start();
+		ThermalControllerTestCommands.CompleteStart(controller);
 
 		controller.PauseFeedback();
-		controller.Tick(TimeSpan.FromSeconds(3.1));
+		controller.ApplyObservation(new ThermalObservation(false, false, controller.Snapshot.CurrentTemperature), TimeSpan.FromSeconds(3.1));
 		Assert.AreEqual(ControllerState.Alarm, controller.Snapshot.State);
 		Assert.AreEqual(AlarmKind.SensorTimeout, controller.Snapshot.ActiveAlarm);
 
@@ -166,7 +166,7 @@ public sealed class ThermalControllerTests
 		Assert.AreEqual(ControllerState.Alarm, controller.Snapshot.State);
 		Assert.IsFalse(controller.Snapshot.CanReset);
 
-		controller.Tick(TimeSpan.FromMilliseconds(1));
+		controller.ApplyObservation(new ThermalObservation(false, true, controller.Snapshot.CurrentTemperature), TimeSpan.FromMilliseconds(1));
 		Assert.AreEqual(ControllerState.Recovery, controller.Snapshot.State);
 		Assert.IsTrue(controller.Snapshot.CanReset);
 
@@ -178,9 +178,9 @@ public sealed class ThermalControllerTests
 	public void Stop_WhenHeating_ReturnsIdleAndPreservesSessionHistory()
 	{
 		var controller = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
-		controller.Start();
+		ThermalControllerTestCommands.CompleteStart(controller);
 
-		controller.Stop();
+		ThermalControllerTestCommands.CompleteStop(controller);
 
 		Assert.AreEqual(ControllerState.Idle, controller.Snapshot.State);
 		Assert.AreEqual("Stop", controller.EventHistory[^1].Event);
@@ -202,9 +202,9 @@ public sealed class ThermalControllerTests
 	public void DoorOpenThenAtSafetyTemperature_TracksBothInterlocksBeforeRecovery()
 	{
 		var controller = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
-		controller.Start();
+		ThermalControllerTestCommands.CompleteStart(controller);
 		controller.SetDoorOpen(true);
-		controller.ReportTemperature(35);
+		controller.ApplyObservation(new ThermalObservation(controller.Snapshot.IsDoorOpen, true, 35), TimeSpan.Zero);
 
 		controller.SetDoorOpen(false);
 		controller.AcknowledgeAlarm();
@@ -215,15 +215,15 @@ public sealed class ThermalControllerTests
 			new[] { "Alarm: DoorOpen", "Alarm: OverTemperature" },
 			controller.EventHistory.Where(entry => entry.Event.StartsWith("Alarm:")).Select(entry => entry.Event).ToArray());
 
-		controller.ReportTemperature(34);
+		controller.ApplyObservation(new ThermalObservation(controller.Snapshot.IsDoorOpen, true, 34), TimeSpan.Zero);
 		Assert.AreEqual(ControllerState.Recovery, controller.Snapshot.State);
 	}
 	[TestMethod]
 	public void SensorTimeoutThenDoorOpen_TracksBothInterlocksBeforeRecovery()
 	{
 		var controller = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
-		controller.Start(); controller.PauseFeedback(); controller.Tick(TimeSpan.FromSeconds(3));
-		controller.SetDoorOpen(true); controller.AcknowledgeAlarm(); controller.ResumeFeedback(); controller.Tick(TimeSpan.FromMilliseconds(1));
+		ThermalControllerTestCommands.CompleteStart(controller); controller.PauseFeedback(); controller.ApplyObservation(new ThermalObservation(false, false, controller.Snapshot.CurrentTemperature), TimeSpan.FromSeconds(3));
+		controller.SetDoorOpen(true); controller.AcknowledgeAlarm(); controller.ResumeFeedback(); controller.ApplyObservation(new ThermalObservation(true, true, controller.Snapshot.CurrentTemperature), TimeSpan.FromMilliseconds(1));
 		Assert.AreEqual(ControllerState.Alarm, controller.Snapshot.State);
 		CollectionAssert.AreEqual(new[] { "Alarm: SensorTimeout", "Alarm: DoorOpen" }, controller.EventHistory.Where(entry => entry.Event.StartsWith("Alarm:")).Select(entry => entry.Event).ToArray());
 		controller.SetDoorOpen(false);
@@ -243,31 +243,31 @@ public sealed class ThermalControllerTests
 	public void Start_WhenCurrentTemperatureIsAtSafety_RemainsIdleUntilSafeTemperatureReported()
 	{
 		var controller = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
-		controller.ReportTemperature(35); controller.Start();
+		controller.ApplyObservation(new ThermalObservation(controller.Snapshot.IsDoorOpen, true, 35), TimeSpan.Zero); ThermalControllerTestCommands.CompleteStart(controller);
 		Assert.AreEqual(ControllerState.Idle, controller.Snapshot.State); Assert.IsFalse(controller.Snapshot.CanStart);
-		controller.ReportTemperature(34); controller.Start();
+		controller.ApplyObservation(new ThermalObservation(controller.Snapshot.IsDoorOpen, true, 34), TimeSpan.Zero); ThermalControllerTestCommands.CompleteStart(controller);
 		Assert.AreEqual(ControllerState.Heating, controller.Snapshot.State);
 	}
 	[TestMethod]
 	public void FeedbackTimeout_AtExactBoundaryRequiresPositiveFreshTickAfterResume()
 	{
 		var controller = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
-		controller.Start(); controller.PauseFeedback(); controller.Tick(TimeSpan.FromSeconds(3)); controller.AcknowledgeAlarm(); controller.ResumeFeedback(); controller.Tick(TimeSpan.Zero);
+		ThermalControllerTestCommands.CompleteStart(controller); controller.PauseFeedback(); controller.ApplyObservation(new ThermalObservation(false, false, controller.Snapshot.CurrentTemperature), TimeSpan.FromSeconds(3)); controller.AcknowledgeAlarm(); controller.ResumeFeedback(); controller.ApplyObservation(new ThermalObservation(false, true, controller.Snapshot.CurrentTemperature), TimeSpan.Zero);
 		Assert.AreEqual(ControllerState.Alarm, controller.Snapshot.State); Assert.IsFalse(controller.Snapshot.CanReset);
-		controller.Tick(TimeSpan.FromMilliseconds(1)); Assert.AreEqual(ControllerState.Recovery, controller.Snapshot.State);
+		controller.ApplyObservation(new ThermalObservation(false, true, controller.Snapshot.CurrentTemperature), TimeSpan.FromMilliseconds(1)); Assert.AreEqual(ControllerState.Recovery, controller.Snapshot.State);
 	}
 	[TestMethod]
 	public void Stop_WhenAlarmed_PreservesAlarmAndBlocksRestart()
 	{
 		var controller = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
-		controller.Start(); controller.SetDoorOpen(true); controller.Stop(); controller.Start();
+		ThermalControllerTestCommands.CompleteStart(controller); controller.SetDoorOpen(true); ThermalControllerTestCommands.CompleteStop(controller); ThermalControllerTestCommands.CompleteStart(controller);
 		Assert.AreEqual(ControllerState.Alarm, controller.Snapshot.State); Assert.AreEqual(AlarmKind.DoorOpen, controller.Snapshot.ActiveAlarm); Assert.IsFalse(controller.Snapshot.CanStart);
 	}
 	[TestMethod]
 	public void Reset_PreservesEntirePreResetSessionHistory()
 	{
 		var controller = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
-		controller.Start(); controller.SetDoorOpen(true); var beforeReset = controller.EventHistory.ToArray(); controller.SetDoorOpen(false); controller.AcknowledgeAlarm(); controller.Reset();
+		ThermalControllerTestCommands.CompleteStart(controller); controller.SetDoorOpen(true); var beforeReset = controller.EventHistory.ToArray(); controller.SetDoorOpen(false); controller.AcknowledgeAlarm(); controller.Reset();
 		CollectionAssert.AreEqual(beforeReset, controller.EventHistory.Take(beforeReset.Length).ToArray()); Assert.AreEqual("Reset", controller.EventHistory[^1].Event);
 	}
 
@@ -275,14 +275,14 @@ public sealed class ThermalControllerTests
 	public void Reset_AfterDoorOpenAlarm_AllowsDoorOpenAlarmInNewRun()
 	{
 		var controller = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
-		controller.Start();
+		ThermalControllerTestCommands.CompleteStart(controller);
 		controller.SetDoorOpen(true);
 
 		controller.SetDoorOpen(false);
 		controller.AcknowledgeAlarm();
 		controller.Reset();
 
-		controller.Start();
+		ThermalControllerTestCommands.CompleteStart(controller);
 		controller.SetDoorOpen(true);
 
 		Assert.AreEqual(ControllerState.Alarm, controller.Snapshot.State);
@@ -292,7 +292,7 @@ public sealed class ThermalControllerTests
 	public void DoorOpen_ReassertedFromRecovery_ReturnsToAlarmAndBlocksReset()
 	{
 		var controller = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
-		controller.Start();
+		ThermalControllerTestCommands.CompleteStart(controller);
 		controller.SetDoorOpen(true);
 		controller.SetDoorOpen(false);
 		controller.AcknowledgeAlarm();
@@ -307,13 +307,13 @@ public sealed class ThermalControllerTests
 	public void OverTemperature_ReassertedFromRecovery_RequiresNewAcknowledgementAndClearCycleBeforeReset()
 	{
 		var controller = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
-		controller.Start();
-		controller.ReportTemperature(35);
+		ThermalControllerTestCommands.CompleteStart(controller);
+		controller.ApplyObservation(new ThermalObservation(controller.Snapshot.IsDoorOpen, true, 35), TimeSpan.Zero);
 		controller.AcknowledgeAlarm();
-		controller.ReportTemperature(34);
+		controller.ApplyObservation(new ThermalObservation(controller.Snapshot.IsDoorOpen, true, 34), TimeSpan.Zero);
 		Assert.AreEqual(ControllerState.Recovery, controller.Snapshot.State);
 
-		controller.ReportTemperature(35);
+		controller.ApplyObservation(new ThermalObservation(controller.Snapshot.IsDoorOpen, true, 35), TimeSpan.Zero);
 		Assert.AreEqual(ControllerState.Alarm, controller.Snapshot.State);
 		Assert.AreEqual(AlarmKind.OverTemperature, controller.Snapshot.ActiveAlarm);
 		Assert.IsFalse(controller.Snapshot.CanReset);
@@ -323,7 +323,7 @@ public sealed class ThermalControllerTests
 		Assert.AreEqual(ControllerState.Alarm, controller.Snapshot.State);
 		Assert.IsFalse(controller.Snapshot.CanReset);
 
-		controller.ReportTemperature(34);
+		controller.ApplyObservation(new ThermalObservation(controller.Snapshot.IsDoorOpen, true, 34), TimeSpan.Zero);
 		Assert.AreEqual(ControllerState.Recovery, controller.Snapshot.State);
 		Assert.IsTrue(controller.Snapshot.CanReset);
 	}
@@ -332,16 +332,16 @@ public sealed class ThermalControllerTests
 	public void SensorTimeout_ReassertedFromRecovery_RequiresNewAcknowledgementAndClearCycleBeforeReset()
 	{
 		var controller = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
-		controller.Start();
+		ThermalControllerTestCommands.CompleteStart(controller);
 		controller.PauseFeedback();
-		controller.Tick(TimeSpan.FromSeconds(3.1));
+		controller.ApplyObservation(new ThermalObservation(false, false, controller.Snapshot.CurrentTemperature), TimeSpan.FromSeconds(3.1));
 		controller.AcknowledgeAlarm();
 		controller.ResumeFeedback();
-		controller.Tick(TimeSpan.FromMilliseconds(1));
+		controller.ApplyObservation(new ThermalObservation(false, true, controller.Snapshot.CurrentTemperature), TimeSpan.FromMilliseconds(1));
 		Assert.AreEqual(ControllerState.Recovery, controller.Snapshot.State);
 
 		controller.PauseFeedback();
-		controller.Tick(TimeSpan.FromSeconds(3.1));
+		controller.ApplyObservation(new ThermalObservation(false, false, controller.Snapshot.CurrentTemperature), TimeSpan.FromSeconds(3.1));
 		Assert.AreEqual(ControllerState.Alarm, controller.Snapshot.State);
 		Assert.AreEqual(AlarmKind.SensorTimeout, controller.Snapshot.ActiveAlarm);
 		Assert.IsFalse(controller.Snapshot.CanReset);
@@ -352,7 +352,7 @@ public sealed class ThermalControllerTests
 		Assert.IsFalse(controller.Snapshot.CanReset);
 
 		controller.ResumeFeedback();
-		controller.Tick(TimeSpan.FromMilliseconds(1));
+		controller.ApplyObservation(new ThermalObservation(false, true, controller.Snapshot.CurrentTemperature), TimeSpan.FromMilliseconds(1));
 		Assert.AreEqual(ControllerState.Recovery, controller.Snapshot.State);
 		Assert.IsTrue(controller.Snapshot.CanReset);
 	}
@@ -378,7 +378,7 @@ public sealed class ThermalControllerTests
 		var standard = new Recipe("Standard 250째C", 250, 300);
 		var highTemperature = new Recipe("High Temp 300째C", 300, 350);
 		var controller = new ThermalController([standard, highTemperature], SimulationSettings.Illustrative);
-		controller.Start();
+		ThermalControllerTestCommands.CompleteStart(controller);
 
 		var selected = controller.SelectRecipe(highTemperature.Name);
 
@@ -394,13 +394,13 @@ public sealed class ThermalControllerTests
 		var controller = new ThermalController(new Recipe(30, 35),SimulationSettings.Illustrative);
 
 		// Arrange
-		controller.Start();
+		ThermalControllerTestCommands.CompleteStart(controller);
 		controller.PauseFeedback();
 
 		// Act
-		controller.Tick(TimeSpan.FromSeconds(3));
-		controller.Tick(TimeSpan.FromMilliseconds(250));
-		controller.Tick(TimeSpan.FromMilliseconds(250));
+		controller.ApplyObservation(new ThermalObservation(false, false, controller.Snapshot.CurrentTemperature), TimeSpan.FromSeconds(3));
+		controller.ApplyObservation(new ThermalObservation(false, false, controller.Snapshot.CurrentTemperature), TimeSpan.FromMilliseconds(250));
+		controller.ApplyObservation(new ThermalObservation(false, false, controller.Snapshot.CurrentTemperature), TimeSpan.FromMilliseconds(250));
 
 		// Assert
 		// SensorTimeout Alarm 이벤트는 최초 1개여야 한다.
@@ -418,7 +418,7 @@ public sealed class ThermalControllerTests
 	{
 		var idleController = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
 		var heatingController = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
-		heatingController.Start();
+		ThermalControllerTestCommands.CompleteStart(heatingController);
 
 		idleController.ReportCommunicationLost();
 		heatingController.ReportCommunicationLost();
@@ -432,7 +432,7 @@ public sealed class ThermalControllerTests
 
 		var eventCountBeforeBypassAttempts = heatingController.EventHistory.Count;
 		heatingController.AcknowledgeAlarm();
-		heatingController.Stop();
+		ThermalControllerTestCommands.CompleteStop(heatingController);
 		heatingController.Reset();
 
 		Assert.AreEqual(ControllerState.Alarm, heatingController.Snapshot.State);
@@ -449,7 +449,7 @@ public sealed class ThermalControllerTests
 	public void ReportFreshSafeCommunicationEvidence_ThenNewAcknowledge_ReachesRecoveryReadyWithoutReset()
 	{
 		var controller = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
-		controller.Start();
+		ThermalControllerTestCommands.CompleteStart(controller);
 		controller.ReportCommunicationLost();
 		controller.AcknowledgeAlarm();
 
@@ -476,7 +476,7 @@ public sealed class ThermalControllerTests
 	public void AcknowledgeAlarm_AfterCommunicationLostWithOpenDoor_DoesNotBecomeRecoveryReady()
 	{
 		var controller = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
-		controller.Start();
+		ThermalControllerTestCommands.CompleteStart(controller);
 		controller.ReportCommunicationLost();
 		controller.ApplyObservation(
 			new ThermalObservation(isDoorOpen: true, sensorHealthy: true, currentTemperature: 20d),
@@ -497,7 +497,7 @@ public sealed class ThermalControllerTests
 	public void CommunicationLostPlusDoorOpen_CommsOnlyEvidence_DoesNotReachRecoveryReady()
 	{
 		var controller = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
-		controller.Start();
+		ThermalControllerTestCommands.CompleteStart(controller);
 		controller.ReportCommunicationLost();
 		controller.SetDoorOpen(true);
 		controller.ReportFreshSafeCommunicationEvidence();
@@ -514,9 +514,9 @@ public sealed class ThermalControllerTests
 	public void CommunicationLostPlusOverTemperature_CommsOnlyEvidence_DoesNotReachRecoveryReady()
 	{
 		var controller = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
-		controller.Start();
+		ThermalControllerTestCommands.CompleteStart(controller);
 		controller.ReportCommunicationLost();
-		controller.ReportTemperature(35);
+		controller.ApplyObservation(new ThermalObservation(controller.Snapshot.IsDoorOpen, true, 35), TimeSpan.Zero);
 		controller.ReportFreshSafeCommunicationEvidence();
 		controller.AcknowledgeAlarm();
 		Assert.AreEqual(ControllerState.Alarm, controller.Snapshot.State);

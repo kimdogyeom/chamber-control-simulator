@@ -112,4 +112,44 @@ public sealed class VirtualPlcClientTests
 
 		Assert.IsFalse(snapshot.DoorClosed);
 	}
+	// 목적: Heating 중 문 열림이 Core 알람과 별개로 virtual heater를 즉시 끄는지 검증한다.
+	// 예상 결과: Start semantic ACK 뒤 온도가 오르다가 SetDoorClosed(false) 이후 Advance해도 온도가 유지된다.
+	// 완료 조건: 문 열림 interlock이 plant heater latch를 끄고 이후 Start pending이 히터를 재점화하지 않는다.
+	[TestMethod]
+	public async Task SetDoorClosedFalse_AfterStartHeater_StopsTemperatureRise()
+	{
+		var client = new VirtualPlcClient(new VirtualPlcOptions(20d, 5d, TimeSpan.Zero));
+		IPlcClient port = client;
+		await port.ConnectAsync(CancellationToken.None);
+		await port.WriteOutputsAsync(new PlcOutputCommand(1, PlcCommandKind.Start), CancellationToken.None);
+		client.SimulationControl.Advance(TimeSpan.FromSeconds(1));
+		var heating = await port.ReadInputsAsync(CancellationToken.None);
+
+		client.ObservationInputControl.SetDoorClosed(false);
+		client.SimulationControl.Advance(TimeSpan.FromSeconds(2));
+		var afterDoorOpen = await port.ReadInputsAsync(CancellationToken.None);
+
+		Assert.AreEqual(25d, heating.CurrentTemperature);
+		Assert.IsTrue(heating.HeaterEnabled);
+		Assert.IsFalse(afterDoorOpen.DoorClosed);
+		Assert.AreEqual(25d, afterDoorOpen.CurrentTemperature);
+		Assert.IsFalse(afterDoorOpen.HeaterEnabled);
+	}
+
+	// 목적: plant 과온 천장이 Core Recipe와 독립적으로 히터를 끄는지 검증한다.
+	// 예상 결과: 한도 80에서 적분 후 온도가 80이고 HeaterEnabled는 false다.
+	// 완료 조건: VirtualPlcOptions.OverTemperatureLimit만 사용하고 Core를 참조하지 않는다.
+	[TestMethod]
+	public async Task Advance_AtOverTemperatureLimit_LatchesHeaterOff()
+	{
+		var client = new VirtualPlcClient(new VirtualPlcOptions(70d, 20d, TimeSpan.Zero, overTemperatureLimit: 80d));
+		IPlcClient port = client;
+		await port.ConnectAsync(CancellationToken.None);
+		await port.WriteOutputsAsync(new PlcOutputCommand(1, PlcCommandKind.Start), CancellationToken.None);
+		client.SimulationControl.Advance(TimeSpan.FromSeconds(1));
+		var snapshot = await port.ReadInputsAsync(CancellationToken.None);
+
+		Assert.AreEqual(80d, snapshot.CurrentTemperature);
+		Assert.IsFalse(snapshot.HeaterEnabled);
+	}
 }

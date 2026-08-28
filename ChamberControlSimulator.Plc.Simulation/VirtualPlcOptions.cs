@@ -5,7 +5,8 @@ public sealed record VirtualPlcOptions
 	public VirtualPlcOptions(
 		double initialTemperature,
 		double heatingRatePerSecond = 5d,
-		TimeSpan acknowledgementDelay = default)
+		TimeSpan acknowledgementDelay = default,
+		double overTemperatureLimit = 500d)
 	{
 		if (!double.IsFinite(initialTemperature))
 		{
@@ -22,9 +23,15 @@ public sealed record VirtualPlcOptions
 			throw new ArgumentOutOfRangeException(nameof(acknowledgementDelay));
 		}
 
+		if (!double.IsFinite(overTemperatureLimit) || overTemperatureLimit <= 0d)
+		{
+			throw new ArgumentOutOfRangeException(nameof(overTemperatureLimit));
+		}
+
 		InitialTemperature = initialTemperature;
 		HeatingRatePerSecond = heatingRatePerSecond;
 		AcknowledgementDelay = acknowledgementDelay;
+		OverTemperatureLimit = overTemperatureLimit;
 	}
 
 	public double InitialTemperature { get; }
@@ -32,6 +39,8 @@ public sealed record VirtualPlcOptions
 	public double HeatingRatePerSecond { get; }
 
 	public TimeSpan AcknowledgementDelay { get; }
+
+	public double OverTemperatureLimit { get; }
 
 	public static VirtualPlcOptions Illustrative { get; } = new(20d);
 }

@@ -305,7 +305,9 @@ namespace ChamberControlSimulator
 			lblSynchronization.Text = $"Synchronization : {status.SynchronizationState}";
 			lblCommandStatus.Text = status.CommandDisposition == EquipmentCommandLifecycleDisposition.NoCommand
 				? "Command : None"
-				: $"Command : {status.CommandKind?.ToString() ?? "—"} #{status.CommandId?.ToString() ?? "—"} {status.CommandDisposition}";
+				: status.IsAutomatic && status.CommandKind == ControllerCommandKind.Stop
+					? $"Command : Stop #{status.CommandId?.ToString() ?? "—"} (auto) {status.CommandDisposition}"
+					: $"Command : {status.CommandKind?.ToString() ?? "—"} #{status.CommandId?.ToString() ?? "—"} {status.CommandDisposition}";
 		}
 
 		private bool IsEventLogAtBottom()
