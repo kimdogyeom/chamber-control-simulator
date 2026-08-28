@@ -1,7 +1,7 @@
 # P7-T1 scenario matrix
 
 Authority: Windows `C:\Users\rlaeh\source\repos\chamber-control-simulator`, `main`.  
-Bound at documentation commit of this file. Automated test names exist in current HEAD. **App captures remain Planned until P7-T4**; do not treat P0 `docs/demo/images/00-idle.png` … as current P6 UI.
+Bound at documentation commit of this file. Automated test names exist at Release SHA `2d29933`. **App captures are test+log pending operator PNGs** (`docs/verification/p7-t4-app-captures.md`). Do not treat P0 `docs/demo/images/00-idle.png` … as current P6 UI.
 
 P0 historical images are the wrong composition root (`Form1 → Presenter → ThermalController` without PLC observation runtime).
 

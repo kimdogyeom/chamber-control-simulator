@@ -28,6 +28,7 @@ WinForms 기반 가상 열처리 챔버 제어 시뮬레이터입니다. UI, Cor
 | P6-T3 event-log connection/command columns | Completed | source `ae99e20`; stamp Connection/Command from last status; append-only watermark preserved; Debug 190/190, manifest `dbc1e85e97bbc3d3b64a57ab020492116d1fabe1bfe3b150b643d62c97eeb3c8`; [P6-T3 receipt](docs/verification/p6-t3-event-log-columns.md) |
 | P7-T1 scenario matrix | Completed | [scenario-matrix.md](docs/verification/scenario-matrix.md) binds S01–S12 to existing tests; P7-T4 captures remain Planned |
 | P7-T2 clean Release verification | Completed | SHA `2d29933`; SDK 10.0.400; Release 190/190; [receipt](docs/verification/p7-t2-release-verification.md) |
+| P7-T4 app captures | test+log pending operator PNG | no WinForms capture in this session; P0 images not current UI; [status](docs/verification/p7-t4-app-captures.md) |
 
 ## 현재 구현된 책임 경계
 
