@@ -58,6 +58,7 @@ PC application의 Door/temperature/sensor interlock은 software policy demonstra
 | P6-T1 connection/command/synchronization status rendering | Completed | `ad7e5fc`; display-only mapping; Debug 188/188, manifest `89f1b835e7f8cfc379ffbc544f0dd110e57a0ea4137e2b12cf7041964065c37c`; [P6-T1 receipt](verification/p6-t1-status-rendering.md) |
 | P6-T2 simulation / fault-injection chrome | Completed | `e8f6a28`; operator vs Simulation / Fault Injection; Debug 189/189, manifest `d52a202fc7aafcb211f316900420c69d3a519c0d034988daa31650ecfed7697f`; [P6-T2 receipt](verification/p6-t2-simulation-chrome.md) |
 | P6-T3 event-log connection/command columns | Completed | `ae99e20`; stamp from last status; watermark preserved; Debug 190/190, manifest `dbc1e85e97bbc3d3b64a57ab020492116d1fabe1bfe3b150b643d62c97eeb3c8`; [P6-T3 receipt](verification/p6-t3-event-log-columns.md) |
+| P7-T1 scenario matrix | Completed | tracked `docs/verification/scenario-matrix.md`; S01–S12 bound to existing tests; captures Planned until P7-T4 |
 
 각 P3/P4/P5/P6 자동 검증 수치는 해당 source SHA와 verification receipt에만 bound된다. P6 수치를 P7 captures, production release 또는 safety claim으로 확장하지 않는다.
 

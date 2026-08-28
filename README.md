@@ -26,6 +26,7 @@ WinForms 기반 가상 열처리 챔버 제어 시뮬레이터입니다. UI, Cor
 | P6-T1 connection/command/synchronization status rendering | Completed | source `ad7e5fc`; Presenter maps cycle connection/sync/command; Form displays without computing recovery; Debug 188/188, manifest `89f1b835e7f8cfc379ffbc544f0dd110e57a0ea4137e2b12cf7041964065c37c`; [P6-T1 receipt](docs/verification/p6-t1-status-rendering.md) |
 | P6-T2 simulation / fault-injection chrome | Completed | source `e8f6a28`; Simulation / Fault Injection group; Suppress ACK and Disconnect wired to existing `VirtualPlcSimulationControl`; operator commands unchanged; Debug 189/189, manifest `d52a202fc7aafcb211f316900420c69d3a519c0d034988daa31650ecfed7697f`; [P6-T2 receipt](docs/verification/p6-t2-simulation-chrome.md) |
 | P6-T3 event-log connection/command columns | Completed | source `ae99e20`; stamp Connection/Command from last status; append-only watermark preserved; Debug 190/190, manifest `dbc1e85e97bbc3d3b64a57ab020492116d1fabe1bfe3b150b643d62c97eeb3c8`; [P6-T3 receipt](docs/verification/p6-t3-event-log-columns.md) |
+| P7-T1 scenario matrix | Completed | [scenario-matrix.md](docs/verification/scenario-matrix.md) binds S01–S12 to existing tests; P7-T4 captures remain Planned |
 
 ## 현재 구현된 책임 경계
 
@@ -257,4 +258,5 @@ dotnet test ChamberControlSimulator.slnx --configuration Debug --no-build --no-r
 - [`docs/verification/p6-t1-status-rendering.md`](docs/verification/p6-t1-status-rendering.md): P6-T1 source SHA, display-only connection/sync/command mapping, Windows 188/188/review evidence, T2/T3/P7 nonclaims
 - [`docs/verification/p6-t2-simulation-chrome.md`](docs/verification/p6-t2-simulation-chrome.md): P6-T2 source SHA, Simulation / Fault Injection grouping, Windows 189/189/review evidence, T3/P7 nonclaims
 - [`docs/verification/p6-t3-event-log-columns.md`](docs/verification/p6-t3-event-log-columns.md): P6-T3 source SHA, Event Log connection/command stamp, Windows 190/190/review evidence, P7 nonclaims
+- [`docs/verification/scenario-matrix.md`](docs/verification/scenario-matrix.md): P7-T1 S01–S12 test names, operator steps, Planned capture paths
 - local ignored `docs/roadmap/STATUS.md`: 다음 작업 세션용 current progress tracker. tracked verification receipt를 대체하지 않는다.
