@@ -15,7 +15,7 @@ WinForms 기반 가상 열처리 챔버 제어 시뮬레이터입니다. UI, Cor
 
 ## 어떻게 확인하는가
 
-Windows, frozen Release SHA `2d29933`, SDK 10.0.400:
+Windows, Release source HEAD `f600f2a`, SDK 10.0.400, **209/209**:
 
 ```powershell
 dotnet restore ChamberControlSimulator.slnx
@@ -23,7 +23,7 @@ dotnet build ChamberControlSimulator.slnx --configuration Release --no-restore
 dotnet test ChamberControlSimulator.slnx --configuration Release --no-build --no-restore
 ```
 
-시나리오 테스트명: [`docs/verification/scenario-matrix.md`](docs/verification/scenario-matrix.md). 라이브 창 캡처는 운영자 PNG 대기 ([`p7-t4-app-captures.md`](docs/verification/p7-t4-app-captures.md)). P0 이미지는 현재 UI가 아니다.
+시나리오 테스트명: [`docs/verification/scenario-matrix.md`](docs/verification/scenario-matrix.md). 라이브 창: [`p7-t4-app-captures.md`](docs/verification/p7-t4-app-captures.md). P0 이미지는 현재 UI가 아니다.
 
 ## 증거 행
 
@@ -35,9 +35,9 @@ dotnet test ChamberControlSimulator.slnx --configuration Release --no-build --no
 | 안전 증거 + 새 Ack → Recovery-ready, Reset 미호출 | `00a1df2` | S10 tests | [P5-T4](docs/verification/p5-t4-fresh-safe-recovery.md) |
 | 복합 alarm / P4 hold가 Recovery를 막음 | `ee89095` | S11 tests | [P5-T5](docs/verification/p5-t5-composite-alarms.md) |
 | UI는 표시만, 복구를 계산하지 않음 | `ad7e5fc` / `e8f6a28` / `ae99e20` | Presentation tests | [P6-T1](docs/verification/p6-t1-status-rendering.md) |
-| 거절 이유 명령 칸 고정, Software Abort ≠ E-Stop | current source (unbound to `2d29933`) | `RequestStopAsync_WhileAlarm_RejectsWithCoreIneligibleReason`; `RequestAbortAsync_WhileStartAwaitingAck_WritesAbortAndKeepsHoldUntilAck` | 라이브 PNG 제외. Abort는 히터 Off 요청이며 하드웨어 비상정지가 아님 |
+| 거절 이유 명령 칸 고정, Software Abort ≠ E-Stop | `f600f2a` | `RequestStopAsync_WhileAlarm_RejectsWithCoreIneligibleReason`; `RequestAbortAsync_WhileStartAwaitingAck_WritesAbortAndKeepsHoldUntilAck` | [`p7-s13-abort.png`](docs/demo/images/p7-s13-abort.png). Abort는 히터 Off 요청이며 하드웨어 비상정지가 아님 |
 
-없는 증거: Reset 성공, Modbus/TCP, 실장비, 하드웨어 E-Stop/Safety PLC, 현재 UI 스크린샷. Software Abort는 PC 히터 Off 선점이며 안전회로가 아니다.
+없는 증거: Reset 성공, Modbus/TCP, 실장비, 하드웨어 E-Stop/Safety PLC. Software Abort는 PC 히터 Off 선점이며 안전회로가 아니다. ACK timeout / WaitingForFreshInput은 test+log.
 
 ## 구현 상태와 증거 상태
 
@@ -61,12 +61,12 @@ dotnet test ChamberControlSimulator.slnx --configuration Release --no-build --no
 | P6-T1 connection/command/synchronization status rendering | Completed | source `ad7e5fc`; Presenter maps cycle connection/sync/command; Form displays without computing recovery; Debug 188/188, manifest `89f1b835e7f8cfc379ffbc544f0dd110e57a0ea4137e2b12cf7041964065c37c`; [P6-T1 receipt](docs/verification/p6-t1-status-rendering.md) |
 | P6-T2 simulation / fault-injection chrome | Completed | source `e8f6a28`; Simulation / Fault Injection group; Suppress ACK and Disconnect wired to existing `VirtualPlcSimulationControl`; operator commands unchanged; Debug 189/189, manifest `d52a202fc7aafcb211f316900420c69d3a519c0d034988daa31650ecfed7697f`; [P6-T2 receipt](docs/verification/p6-t2-simulation-chrome.md) |
 | P6-T3 event-log connection/command columns | Completed | source `ae99e20`; stamp Connection/Command from last status; append-only watermark preserved; Debug 190/190, manifest `dbc1e85e97bbc3d3b64a57ab020492116d1fabe1bfe3b150b643d62c97eeb3c8`; [P6-T3 receipt](docs/verification/p6-t3-event-log-columns.md) |
-| P7-T1 scenario matrix | Completed | [scenario-matrix.md](docs/verification/scenario-matrix.md) binds S01–S12 to existing tests; P7-T4 captures remain Planned |
-| P7-T2 clean Release verification | Completed | SHA `2d29933`; SDK 10.0.400; Release 190/190; [receipt](docs/verification/p7-t2-release-verification.md) |
-| P7-T4 app captures | test+log pending operator PNG | no WinForms capture in this session; P0 images not current UI; [status](docs/verification/p7-t4-app-captures.md) |
-| P7-T3 README evidence rewrite | Completed | lead + 6 evidence rows; Reset-success/Modbus/safety demoted |
-| P7-T5 v1.0 receipt | tracked, captures incomplete | [v1.0-release-receipt.md](docs/verification/v1.0-release-receipt.md); no tag/push; live PNGs pending |
-| Software Abort / command rejection label | source in this worktree | Debug Core 47 + Abstractions 22 + Application 80 + Simulation 25 + Presentation 33; Release 미재실행 | Abort ≠ E-Stop; live PNG excluded |
+| P7-T1 scenario matrix | Completed | [scenario-matrix.md](docs/verification/scenario-matrix.md) binds S01–S14; ACK timeout / WaitingForFreshInput remain test+log |
+| P7-T2 clean Release verification | Completed | source HEAD `f600f2a`; SDK 10.0.400; Release 209/209; [receipt](docs/verification/p7-t2-release-verification.md) |
+| P7-T4 app captures | Completed | six `docs/demo/images/p7-*.png`; P0 images not current UI; [status](docs/verification/p7-t4-app-captures.md) |
+| P7-T3 README evidence rewrite | Completed | lead + evidence rows; Reset-success/Modbus/safety demoted |
+| P7-T5 v1.0 receipt | tracked, no tag | [v1.0-release-receipt.md](docs/verification/v1.0-release-receipt.md); live PNGs present |
+| Software Abort / command rejection label | Completed | Release 209/209 @ `f600f2a`; Abort ≠ E-Stop |
 
 ## 현재 구현된 책임 경계
 
@@ -298,8 +298,8 @@ dotnet test ChamberControlSimulator.slnx --configuration Debug --no-build --no-r
 - [`docs/verification/p6-t1-status-rendering.md`](docs/verification/p6-t1-status-rendering.md): P6-T1 source SHA, display-only connection/sync/command mapping, Windows 188/188/review evidence, T2/T3/P7 nonclaims
 - [`docs/verification/p6-t2-simulation-chrome.md`](docs/verification/p6-t2-simulation-chrome.md): P6-T2 source SHA, Simulation / Fault Injection grouping, Windows 189/189/review evidence, T3/P7 nonclaims
 - [`docs/verification/p6-t3-event-log-columns.md`](docs/verification/p6-t3-event-log-columns.md): P6-T3 source SHA, Event Log connection/command stamp, Windows 190/190/review evidence, P7 nonclaims
-- [`docs/verification/scenario-matrix.md`](docs/verification/scenario-matrix.md): P7-T1 S01–S12 test names, operator steps, Planned capture paths
-- [`docs/verification/p7-t2-release-verification.md`](docs/verification/p7-t2-release-verification.md): Release 190/190 at `2d29933`
-- [`docs/verification/p7-t4-app-captures.md`](docs/verification/p7-t4-app-captures.md): capture gap
-- [`docs/verification/v1.0-release-receipt.md`](docs/verification/v1.0-release-receipt.md): v1.0 verification SHA, no tag
+- [`docs/verification/scenario-matrix.md`](docs/verification/scenario-matrix.md): P7-T1 S01–S14 test names, operator steps, live capture paths
+- [`docs/verification/p7-t2-release-verification.md`](docs/verification/p7-t2-release-verification.md): Release 209/209 at `f600f2a`
+- [`docs/verification/p7-t4-app-captures.md`](docs/verification/p7-t4-app-captures.md): six live `docs/demo/images/p7-*.png`
+- [`docs/verification/v1.0-release-receipt.md`](docs/verification/v1.0-release-receipt.md): v1.0 verification SHA, live PNGs, no tag
 - local ignored `docs/roadmap/STATUS.md`: 다음 작업 세션용 current progress tracker. tracked verification receipt를 대체하지 않는다.

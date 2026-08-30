@@ -1,7 +1,7 @@
 # P7-T1 scenario matrix
 
 Authority: Windows `C:\Users\rlaeh\source\repos\chamber-control-simulator`, `main`.  
-Bound at documentation commit of this file. Automated test names exist at Release SHA `2d29933`. **App captures are test+log pending operator PNGs** (`docs/verification/p7-t4-app-captures.md`). Do not treat P0 `docs/demo/images/00-idle.png` … as current P6 UI.
+Bound at documentation commit of this file. Automated tests at Release source HEAD `f600f2a` (209/209). Live captures: [`p7-t4-app-captures.md`](p7-t4-app-captures.md). Do not treat P0 `docs/demo/images/00-idle.png` … as current UI.
 
 P0 historical images are the wrong composition root (`Form1 → Presenter → ThermalController` without PLC observation runtime).
 
@@ -11,7 +11,7 @@ P0 historical images are the wrong composition root (`Form1 → Presenter → Th
 - Operator: Idle, door closed, sensor healthy, Start, wait matching ACK, hold, cool, Complete
 - Expected UI: command Start Acknowledged then None; connection Connected; sync Synchronized; Core Complete
 - Event Log: Start written / awaiting ACK / acknowledged; phase events
-- Capture: Planned `docs/demo/images/p7-s01-heating.png` (P7-T4)
+- Capture: [`docs/demo/images/p7-s01-heating.png`](../demo/images/p7-s01-heating.png)
 
 ## S02 Idle Door gate
 
@@ -25,7 +25,7 @@ P0 historical images are the wrong composition root (`Form1 → Presenter → Th
 - Automated: `ThermalControllerTests.OpenDoor_WhileHeating_EntersDoorOpenAlarm`; `EquipmentCoordinatorTests.CycleAsync_WhenDoorIsOpenDuringHeating_MapsInputToDoorOpenAlarmWithoutWrite`; `ThermalObservationTests.ApplyObservation_WhenDoorIsOpenDuringHeating_RaisesDoorOpenAlarm`
 - Operator: Heating 중 Open Door
 - Expected UI: Alarm DoorOpen; CanReset false until close+Ack+Recovery
-- Capture: Planned `docs/demo/images/p7-s03-door-open.png`
+- Capture: [`docs/demo/images/p7-s03-door-open.png`](../demo/images/p7-s03-door-open.png)
 
 ## S04 over-temperature
 
@@ -46,7 +46,7 @@ P0 historical images are the wrong composition root (`Form1 → Presenter → Th
 - Automated: `EquipmentCommandRuntimeTests.RequestStartAsync_WriteStillInFlightAtReceiptDeadline_HoldsLeaseAndCannotRevive`; `EquipmentCommandRuntimeVirtualPlcTests.StartTracer_SuppressedAck_AppliesVirtualEffectButKeepsCoreUncompleted`; `VirtualPlcFaultControlTests.SuppressNextAcknowledgement_AppliesSemanticEffectButKeepsAckUnobserved`
 - Operator: Suppress ACK, Start, wait past timeout
 - Expected UI: Heating 진입 금지; command TimedOut / hold; Simulation / Fault Injection used
-- Capture: Planned `docs/demo/images/p7-s06-ack-timeout.png` or test+log if transient
+- Capture: **test+log** (ACK timeout not in portfolio set)
 
 ## S07 late ACK
 
@@ -59,21 +59,21 @@ P0 historical images are the wrong composition root (`Form1 → Presenter → Th
 - Automated: `EquipmentCommandRuntimeTests.RequestStopAsync_TransportFailure_RaisesCommunicationLostAndPreservesReconciliationHold`; `EquipmentCoordinatorTests.CycleAsync_WhenReadThrowsTransportException_RaisesCommunicationLostWithoutWrite`; P5-T1 receipt `p5-t1-communication-lost.md` @ `8fabaeb`
 - Operator: Heating 중 Disconnect
 - Expected UI: Alarm CommunicationLost; connection Faulted/Disconnected; progress stopped
-- Capture: Planned `docs/demo/images/p7-s08-communication-lost.png`
+- Capture: [`docs/demo/images/p7-s08-communication-lost.png`](../demo/images/p7-s08-communication-lost.png)
 
 ## S09 reconnect only / WaitingForFreshInput
 
 - Automated: `EquipmentCoordinatorTests.CycleAsync_AfterReadFault_RejectsCopiedOldIncarnationAndAcceptsCurrentReset`; P5-T3 receipt `p5-t3-source-synchronization.md` @ `fc37338`
 - Operator: Disconnect 후 재연결, 소켓만 살아 있음
 - Expected UI: connection Connected **and** Synchronization WaitingForFreshInput; no Recovery from reconnect alone
-- Capture: Planned `docs/demo/images/p7-s09-waiting-for-fresh-input.png`
+- Capture: **test+log** (WaitingForFreshInput not in portfolio set)
 
 ## S10 Recovery-ready without Reset
 
 - Automated: `EquipmentCoordinatorTests.CycleAsync_AfterSynchronizedSafeInput_NewAcknowledgeReachesRecoveryReadyWithoutReset`; P5-T4 receipt `p5-t4-fresh-safe-recovery.md` @ `00a1df2`
 - Operator: synchronized safe input, **new** Acknowledge
 - Expected UI: Recovery Ready Yes; Event Log has no Reset
-- Capture: Planned `docs/demo/images/p7-s10-recovery-ready.png`
+- Capture: [`docs/demo/images/p7-s10-recovery-ready.png`](../demo/images/p7-s10-recovery-ready.png)
 - Nonclaim: Reset success
 
 ## S11 compound fault
@@ -93,7 +93,7 @@ P0 historical images are the wrong composition root (`Form1 → Presenter → Th
 - Automated: `EquipmentCommandRuntimeTests.RequestAbortAsync_WhileStartAwaitingAck_WritesAbortAndKeepsHoldUntilAck`; `CommandReservationTests.TryReserveAbortPreempting_InvalidatesOutstandingStartReservation`
 - Operator: Start 대기 중 Software Abort
 - Expected UI: Command Abort awaiting ACK; heater off after semantic apply; Alarm/Reset unchanged; label is Software Abort not E-Stop
-- Evidence: **test+log**. Live PNG later (`docs/image` excluded from this commit).
+- Capture: [`docs/demo/images/p7-s13-abort.png`](../demo/images/p7-s13-abort.png)
 ## S14 command rejection label
 - Automated: `EquipmentCommandRuntimeTests.RequestStopAsync_WhileAlarm_RejectsWithCoreIneligibleReason`; `StopRequested_WhileAlarm_MapsAdmissionRejectedWithoutAutomaticFlag`
 - Operator: Alarm 중 Stop
@@ -102,4 +102,4 @@ P0 historical images are the wrong composition root (`Form1 → Presenter → Th
 
 ## Nonclaims
 
-Reset success, Modbus, real equipment, safety-rated, hardware E-Stop/Safety PLC, Software Abort as E-Stop, P0 image reuse as current UI, push/tag. Live `docs/image` PNGs are later operator work.
+Reset success, Modbus, real equipment, safety-rated, hardware E-Stop/Safety PLC, Software Abort as E-Stop, P0 image reuse as current UI, push/tag. ACK timeout and WaitingForFreshInput remain test+log.

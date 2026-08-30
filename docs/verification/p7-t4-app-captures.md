@@ -2,35 +2,35 @@
 
 ## Authority
 
-- Frozen Release SHA for automated evidence: `2d2993338eae7bf193c78e3f5ccc8b05722e80bb`
-- This documentation commit does not add PNG files.
+- Operator captures taken on current MainForm UI after Abort / disconnect-heater work.
+- Release automated evidence at source HEAD `f600f2a846193216c6ac5d2bf89bc11fb99a0f37`: 209/209.
+- Documentation commit that adds these PNGs is the capture SHA.
 
 ## Decision
 
-No new `docs/demo/images/p7-*.png` files are committed in this slice. The agent session has no WinForms/desktop capture surface. 04 §7 forbids fabricating or compositing frames. P0 `docs/demo/images/00-idle.png` … remain historical Presenter/Core screenshots and are **not** current P6 UI evidence.
+Six live app-window PNGs are tracked under `docs/demo/images/p7-*.png`. P0 `docs/demo/images/00-idle.png` … remain historical Presenter/Core screenshots and are **not** current UI evidence. Staging copies under `docs/image/` are local-only.
 
-Each required state is therefore **test+log** until an operator captures the live app window on SHA `2d29933` (or a later SHA that re-runs Release).
+ACK timeout and WaitingForFreshInput are **test+log**. They are not required portfolio frames.
 
-## Required states
+## Captured states
 
-| State | Automated evidence | Capture |
+| State | File | Notes |
 | --- | --- | --- |
-| Idle baseline | Core Idle snapshots; Presentation constructor render | test+log; operator PNG pending |
-| Normal ACK Start/Heating | `CycleAsync_LaterExactFreshAcknowledgement_CompletesStartExactlyOnce`; Virtual PLC Start tracer | test+log; operator PNG pending |
-| DoorOpen alarm/recovery | `OpenDoor_WhileHeating_EntersDoorOpenAlarm`; coordinator door mapping | test+log; operator PNG pending |
-| ACK timeout | `StartTracer_SuppressedAck_AppliesVirtualEffectButKeepsCoreUncompleted`; Suppress ACK path | test+log (transient allowed) |
-| CommunicationLost | P5-T1 tests @ `8fabaeb`; runtime transport failure tests | test+log; operator PNG pending |
-| WaitingForFreshInput | `CycleAsync_AfterReadFault_RejectsCopiedOldIncarnationAndAcceptsCurrentReset`; P6-T1 mapping test | test+log; operator PNG pending |
-| Recovery-ready (no Reset) | `CycleAsync_AfterSynchronizedSafeInput_NewAcknowledgeReachesRecoveryReadyWithoutReset` | test+log; operator PNG pending |
+| Idle baseline | [`p7-idle.png`](../demo/images/p7-idle.png) | IDLE, 20 °C, Command None, Start enabled |
+| Normal ACK Start/Heating | [`p7-s01-heating.png`](../demo/images/p7-s01-heating.png) | Heating, Start #1 Completed |
+| DoorOpen alarm | [`p7-s03-door-open.png`](../demo/images/p7-s03-door-open.png) | Alarm DoorOpen, Reset disabled |
+| CommunicationLost | [`p7-s08-communication-lost.png`](../demo/images/p7-s08-communication-lost.png) | Alarm CommunicationLost after Disconnect; Connection may already be Connected |
+| Recovery-ready (no Reset) | [`p7-s10-recovery-ready.png`](../demo/images/p7-s10-recovery-ready.png) | Recovery Ready Yes, Reset enabled, Event Log has no Reset |
+| Software Abort | [`p7-s13-abort.png`](../demo/images/p7-s13-abort.png) | Abort #2 Completed, red Abort button, not E-Stop; post-complete Idle resembles idle baseline |
 
-## Operator capture procedure (not executed here)
+## Not captured (explicit)
 
-1. Checkout `2d29933` or the SHA after a fresh Release re-run.
-2. Run `ChamberControlSimulator` (WinForms).
-3. Capture **app window only**; Event Log readable; Simulation / Fault Injection distinct from operator commands.
-4. Save new files under `docs/demo/images/p7-s01-heating.png` etc. Do not overwrite P0 images as current evidence.
-5. Close the app, re-run Release test, bind PNGs to that SHA.
+| State | Reason |
+| --- | --- |
+| ACK timeout | Transient; test+log |
+| WaitingForFreshInput | Sub-cycle; test+log |
+| Reset success | Not claimed |
 
 ## Nonclaims
 
-These rows are not live GUI evidence. Reset success is not claimed. Modbus/device/safety not claimed. No fake screenshots.
+Reset success, Modbus, real equipment, hardware E-Stop/Safety PLC. Abort is a PC heater-off preemption.

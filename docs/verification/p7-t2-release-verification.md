@@ -4,11 +4,13 @@
 
 - Repository: Windows `C:\Users\rlaeh\source\repos\chamber-control-simulator`
 - Branch: `main`
-- Frozen SHA: `2d2993338eae7bf193c78e3f5ccc8b05722e80bb`
-- Git status before verification: clean (tracked)
+- Source HEAD at verification: `f600f2a846193216c6ac5d2bf89bc11fb99a0f37`
+- Git status before verification: clean tracked; `docs/image/` untracked operator staging
 - OS: Windows_NT 10.0.26200 (Windows 11 Pro)
 - .NET SDK: `10.0.400`
 - Configuration: Release
+
+Historical SHA `2d29933` remains the pre-Abort Release baseline (190/190). This receipt supersedes it for current HEAD.
 
 ## Commands
 
@@ -24,10 +26,10 @@ dotnet test ChamberControlSimulator.slnx --configuration Release --no-build --no
 
 - restore: PASS
 - build: PASS, 0 warnings, 0 errors
-- test: PASS, **190/190** (Abstractions 22, Core 44, Application 75, Presentation 29, Simulation 20)
+- test: PASS, **209/209** (Abstractions 22, Core 47, Application 80, Presentation 33, Simulation 27)
 
-If HEAD changes, this receipt is invalid.
+If HEAD changes after this verification, re-run Release before claiming these totals.
 
 ## Nonclaims
 
-App captures (P7-T4), README rewrite (P7-T3), v1.0 tag/push, Reset success, Modbus, real equipment, safety-rated.
+v1.0 tag/push, Reset success, Modbus, real equipment, safety-rated, hardware E-Stop.
