@@ -158,7 +158,7 @@ public sealed class EquipmentPresenterTests
 	}
 
 	private static string FormatCommandLabel(EquipmentStatusViewModel status) =>
-		Form1.FormatCommandStatus(status);
+		MainForm.FormatCommandStatus(status);
 
 
 	// 목적: observation cycle이 Connected이면서 WaitingForFreshInput이고 command가 AwaitingAck여도 View가 두 상태와 command를 따로 받는지 검증한다.

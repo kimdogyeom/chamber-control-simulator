@@ -1,6 +1,6 @@
 namespace ChamberControlSimulator
 {
-    partial class Form1
+    partial class MainForm
     {
         /// <summary>
         /// Required designer variable.
@@ -113,10 +113,10 @@ namespace ChamberControlSimulator
             LayoutPanel.Name = "LayoutPanel";
             LayoutPanel.RowCount = 4;
             LayoutPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 107F));
-            LayoutPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 53.5087738F));
-            LayoutPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 46.4912262F));
+            LayoutPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 50F));
+            LayoutPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 50F));
             LayoutPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 546F));
-            LayoutPanel.Size = new Size(1288, 1385);
+            LayoutPanel.Size = new Size(1288, 1520);
             LayoutPanel.TabIndex = 0;
             LayoutPanel.Paint += tableLayoutPanel1_Paint;
             //
@@ -270,10 +270,10 @@ namespace ChamberControlSimulator
             //
             // btnStop
             //
-            btnStop.Location = new Point(316, 201);
+            btnStop.Location = new Point(220, 201);
             btnStop.Margin = new Padding(6);
             btnStop.Name = "btnStop";
-            btnStop.Size = new Size(188, 51);
+            btnStop.Size = new Size(168, 51);
             btnStop.TabIndex = 4;
             btnStop.Text = "Stop";
             btnStop.UseVisualStyleBackColor = true;
@@ -281,13 +281,16 @@ namespace ChamberControlSimulator
             //
             // btnAbort
             //
-            btnAbort.Location = new Point(96, 201);
+            btnAbort.Location = new Point(404, 201);
             btnAbort.Margin = new Padding(6);
             btnAbort.Name = "btnAbort";
-            btnAbort.Size = new Size(188, 51);
+            btnAbort.Size = new Size(168, 51);
             btnAbort.TabIndex = 7;
-            btnAbort.Text = "Software Abort";
-            btnAbort.UseVisualStyleBackColor = true;
+            btnAbort.Text = "Abort";
+            btnAbort.BackColor = Color.FromArgb(198, 40, 40);
+            btnAbort.ForeColor = Color.White;
+            btnAbort.FlatStyle = FlatStyle.Flat;
+            btnAbort.UseVisualStyleBackColor = false;
             btnAbort.Click += btnAbort_Click;
             //
             // btnReset
@@ -314,10 +317,10 @@ namespace ChamberControlSimulator
             //
             // btnStart
             //
-            btnStart.Location = new Point(96, 150);
+            btnStart.Location = new Point(36, 201);
             btnStart.Margin = new Padding(6);
             btnStart.Name = "btnStart";
-            btnStart.Size = new Size(188, 51);
+            btnStart.Size = new Size(168, 51);
             btnStart.TabIndex = 3;
             btnStart.Text = "Start";
             btnStart.UseVisualStyleBackColor = true;
@@ -386,7 +389,7 @@ namespace ChamberControlSimulator
             // lblActiveAlarm
             //
             lblActiveAlarm.AutoSize = true;
-            lblActiveAlarm.Location = new Point(36, 274);
+            lblActiveAlarm.Location = new Point(36, 300);
             lblActiveAlarm.Margin = new Padding(6, 0, 6, 0);
             lblActiveAlarm.Name = "lblActiveAlarm";
             lblActiveAlarm.Size = new Size(197, 32);
@@ -396,7 +399,7 @@ namespace ChamberControlSimulator
             // lblRecoveryReady
             //
             lblRecoveryReady.AutoSize = true;
-            lblRecoveryReady.Location = new Point(36, 328);
+            lblRecoveryReady.Location = new Point(36, 348);
             lblRecoveryReady.Margin = new Padding(6, 0, 6, 0);
             lblRecoveryReady.Name = "lblRecoveryReady";
             lblRecoveryReady.Size = new Size(232, 32);
@@ -406,7 +409,7 @@ namespace ChamberControlSimulator
             // lblFeedbackState
             //
             lblFeedbackState.AutoSize = true;
-            lblFeedbackState.Location = new Point(36, 220);
+            lblFeedbackState.Location = new Point(36, 252);
             lblFeedbackState.Margin = new Padding(6, 0, 6, 0);
             lblFeedbackState.Name = "lblFeedbackState";
             lblFeedbackState.Size = new Size(241, 32);
@@ -416,7 +419,7 @@ namespace ChamberControlSimulator
             // lblDoorState
             //
             lblDoorState.AutoSize = true;
-            lblDoorState.Location = new Point(36, 180);
+            lblDoorState.Location = new Point(36, 204);
             lblDoorState.Margin = new Padding(6, 0, 6, 0);
             lblDoorState.Name = "lblDoorState";
             lblDoorState.Size = new Size(113, 32);
@@ -436,7 +439,7 @@ namespace ChamberControlSimulator
             // lblSynchronization
             //
             lblSynchronization.AutoSize = true;
-            lblSynchronization.Location = new Point(36, 100);
+            lblSynchronization.Location = new Point(36, 108);
             lblSynchronization.Margin = new Padding(6, 0, 6, 0);
             lblSynchronization.Name = "lblSynchronization";
             lblSynchronization.Size = new Size(260, 32);
@@ -446,7 +449,7 @@ namespace ChamberControlSimulator
             // lblCommandStatus
             //
             lblCommandStatus.AutoSize = true;
-            lblCommandStatus.Location = new Point(36, 140);
+            lblCommandStatus.Location = new Point(36, 156);
             lblCommandStatus.Margin = new Padding(6, 0, 6, 0);
             lblCommandStatus.Name = "lblCommandStatus";
             lblCommandStatus.Size = new Size(260, 32);
@@ -641,12 +644,12 @@ namespace ChamberControlSimulator
             // colLogState
             //
             colLogState.Text = "State";
-            colLogState.Width = 100;
+            colLogState.Width = 80;
             //
             // colLogEvent
             //
             colLogEvent.Text = "Event";
-            colLogEvent.Width = 300;
+            colLogEvent.Width = 180;
             //
             // colLogAlarm
             //
@@ -668,16 +671,16 @@ namespace ChamberControlSimulator
             tmSimulationTick.Interval = 250;
             tmSimulationTick.Tick += tmSimulationTick_Tick;
             //
-            // Form1
+            // MainForm
             //
             AutoScaleDimensions = new SizeF(14F, 32F);
             AutoScaleMode = AutoScaleMode.Font;
-            ClientSize = new Size(1288, 1385);
+            ClientSize = new Size(1288, 1520);
             Controls.Add(LayoutPanel);
             Margin = new Padding(4, 2, 4, 2);
-            Name = "Form1";
+            Name = "MainForm";
             Text = "Chamber Control Simulator";
-            Load += Form1_Load;
+            Load += MainForm_Load;
             LayoutPanel.ResumeLayout(false);
             pnlTopBar.ResumeLayout(false);
             pnlTopBar.PerformLayout();

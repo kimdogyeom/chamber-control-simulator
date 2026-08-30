@@ -5,7 +5,7 @@ using System.Drawing;
 
 namespace ChamberControlSimulator
 {
-	public partial class Form1 : Form, IEquipmentView
+	public partial class MainForm : Form, IEquipmentView
 	{
 		private readonly System.Diagnostics.Stopwatch _stopwatch = new();
 		private int _renderedEventCount;
@@ -15,10 +15,10 @@ namespace ChamberControlSimulator
 
 		public double SimulatedTemperature => (double)nudSimulatedTemperature.Value;
 
-		public Form1()
+		public MainForm()
 		{
 			InitializeComponent();
-			FormClosing += Form1_FormClosing;
+			FormClosing += MainForm_FormClosing;
 			cmbRecipe.SelectionChangeCommitted += cmbRecipe_SelectionChangeCommitted;
 		}
 
@@ -37,7 +37,7 @@ namespace ChamberControlSimulator
 		public event Func<TimerTickedEventArgs, Task>? TimerTicked;
 		public event EventHandler<RecipeSelectionRequestedEventArgs>? RecipeSelectionRequested;
 
-		private async void Form1_FormClosing(object? sender, FormClosingEventArgs e)
+		private async void MainForm_FormClosing(object? sender, FormClosingEventArgs e)
 		{
 			if (_allowCloseAfterTeardown)
 			{
@@ -109,7 +109,7 @@ namespace ChamberControlSimulator
 			}
 		}
 
-		private void Form1_Load(object sender, EventArgs e)
+		private void MainForm_Load(object sender, EventArgs e)
 		{
 			_stopwatch.Start();
 			tmSimulationTick.Start();

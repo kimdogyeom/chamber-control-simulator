@@ -7,14 +7,9 @@ namespace ChamberControlSimulator
 {
 	internal static class Program
 	{
-		/// <summary>
-		///  The main entry point for the application.
-		/// </summary>
 		[STAThread]
 		static async Task Main()
 		{
-			// To customize application configuration such as set high DPI settings or default font,
-			// see https://aka.ms/applicationconfiguration.
 			ApplicationConfiguration.Initialize();
 
 			var recipes = new[]
@@ -34,7 +29,7 @@ namespace ChamberControlSimulator
 				virtualPlc,
 				TimeProvider.System);
 
-			using var form = new Form1();
+			using var form = new MainForm();
 			var observationRuntime = CreateObservationRuntime(commandRuntime, virtualPlc);
 			await using var presenter = new EquipmentPresenter(
 				form,
