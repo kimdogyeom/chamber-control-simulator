@@ -99,6 +99,8 @@ public sealed class EquipmentPresenterTests
 		await view.RaiseStopRequestedAsync();
 		Assert.AreEqual(EquipmentCommandLifecycleDisposition.AdmissionRejected, view.LastStatus!.CommandDisposition);
 		Assert.IsFalse(view.LastStatus.IsAutomatic);
+		Assert.AreEqual(EquipmentCommandRejectionReason.CoreIneligible, view.LastStatus.RejectionReason);
+		Assert.AreEqual(ControllerCommandKind.Stop, view.LastStatus.RejectedKind);
 	}
 	// 목적: Completed InputSnapshot 전에는 Door 토글이 PLC에 쓰지 않는지 검증한다.
 	// 예상 결과: 첫 DoorToggle 후 LastDoorClosed는 null이고, Completed cycle 뒤 토글만 false를 기록한다.
@@ -156,11 +158,7 @@ public sealed class EquipmentPresenterTests
 	}
 
 	private static string FormatCommandLabel(EquipmentStatusViewModel status) =>
-		status.CommandDisposition == EquipmentCommandLifecycleDisposition.NoCommand
-			? "Command : None"
-			: status.IsAutomatic && status.CommandKind == ControllerCommandKind.Stop
-				? $"Command : Stop #{status.CommandId?.ToString() ?? "—"} (auto) {status.CommandDisposition}"
-				: $"Command : {status.CommandKind?.ToString() ?? "—"} #{status.CommandId?.ToString() ?? "—"} {status.CommandDisposition}";
+		Form1.FormatCommandStatus(status);
 
 
 	// 목적: observation cycle이 Connected이면서 WaitingForFreshInput이고 command가 AwaitingAck여도 View가 두 상태와 command를 따로 받는지 검증한다.
@@ -1209,6 +1207,8 @@ public sealed class EquipmentPresenterTests
 
 		public Task<EquipmentCommandRequestResult> RequestResetAsync(CancellationToken cancellationToken) =>
 			Reject(cancellationToken);
+		public Task<EquipmentCommandRequestResult> RequestAbortAsync(CancellationToken cancellationToken) =>
+			Reject(cancellationToken);
 
 		private Task<EquipmentCommandRequestResult> Reject(CancellationToken cancellationToken)
 		{
@@ -1218,10 +1218,14 @@ public sealed class EquipmentPresenterTests
 				null,
 				null,
 				null,
-				null);
+				null,
+				false,
+				EquipmentCommandRejectionReason.CoreIneligible,
+				ControllerCommandKind.Stop);
 			return Task.FromResult(new EquipmentCommandRequestResult(
 				EquipmentCommandLifecycleDisposition.AdmissionRejected,
-				null));
+				null,
+				EquipmentCommandRejectionReason.CoreIneligible));
 		}
 
 		public void StopAdmission()
@@ -1271,6 +1275,8 @@ public sealed class EquipmentPresenterTests
 
 		public Task<EquipmentCommandRequestResult> RequestResetAsync(CancellationToken cancellationToken) =>
 			RequestCommandAsync(ControllerCommandKind.Reset, cancellationToken);
+		public Task<EquipmentCommandRequestResult> RequestAbortAsync(CancellationToken cancellationToken) =>
+			RequestCommandAsync(ControllerCommandKind.Abort, cancellationToken);
 
 		private async Task<EquipmentCommandRequestResult> RequestCommandAsync(
 			ControllerCommandKind kind,
@@ -1470,6 +1476,8 @@ public sealed class EquipmentPresenterTests
 			Task.FromResult(new EquipmentCommandRequestResult(_disposition, _commandId));
 		public Task<EquipmentCommandRequestResult> RequestStopAsync(CancellationToken cancellationToken) =>
 			RequestStartAsync(cancellationToken);
+		public Task<EquipmentCommandRequestResult> RequestAbortAsync(CancellationToken cancellationToken) =>
+			RequestStartAsync(cancellationToken);
 		public Task<EquipmentCommandRequestResult> RequestResetAsync(CancellationToken cancellationToken) =>
 			RequestStartAsync(cancellationToken);
 		public ValueTask DisposeAsync() => ValueTask.CompletedTask;
@@ -1479,6 +1487,7 @@ public sealed class EquipmentPresenterTests
 	{
 		public event Func<Task>? StartRequested;
 		public event Func<Task>? StopRequested;
+		public event Func<Task>? AbortRequested;
 		public event EventHandler? AcknowledgeRequested;
 		public event Func<Task>? ResetRequested;
 		public event EventHandler? DoorToggleRequested;
@@ -1512,6 +1521,7 @@ public sealed class EquipmentPresenterTests
 		public Task RaiseStopRequestedAsync() => RaiseCommandRequestedAsync(StopRequested);
 		public void RaiseAcknowledgeRequested() => AcknowledgeRequested?.Invoke(this, EventArgs.Empty);
 		public Task RaiseResetRequestedAsync() => RaiseCommandRequestedAsync(ResetRequested);
+		public Task RaiseAbortRequestedAsync() => RaiseCommandRequestedAsync(AbortRequested);
 
 		private static async Task RaiseCommandRequestedAsync(Func<Task>? requested)
 		{

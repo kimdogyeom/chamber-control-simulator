@@ -11,6 +11,7 @@ WinForms 기반 가상 열처리 챔버 제어 시뮬레이터입니다. UI, Cor
 ## 어떤 어려운 문제를 증명하는가
 
 연결만으로 복구하지 않는다. Connected이면서 `WaitingForFreshInput`일 수 있다. `CommunicationLost`는 동기화된 안전 입력과 **새** Acknowledge 뒤에만 Recovery-ready가 되며, 이 slice는 Reset을 호출하지 않는다. 다른 pending alarm 또는 P4 hold가 있으면 통신 증거만으로 Recovery/Reset이 되지 않는다.
+거절된 Start/Stop/Reset은 MessageBox가 아니라 명령 칸에 이유를 남긴다 (`admission closed`, `command already outstanding`, `not eligible`). Software Abort는 미완료 명령을 선점해 히터 Off write만 요청하며, 하드웨어 E-Stop·Safety PLC·Alarm 해제·Reset이 아니다.
 
 ## 어떻게 확인하는가
 
@@ -34,8 +35,9 @@ dotnet test ChamberControlSimulator.slnx --configuration Release --no-build --no
 | 안전 증거 + 새 Ack → Recovery-ready, Reset 미호출 | `00a1df2` | S10 tests | [P5-T4](docs/verification/p5-t4-fresh-safe-recovery.md) |
 | 복합 alarm / P4 hold가 Recovery를 막음 | `ee89095` | S11 tests | [P5-T5](docs/verification/p5-t5-composite-alarms.md) |
 | UI는 표시만, 복구를 계산하지 않음 | `ad7e5fc` / `e8f6a28` / `ae99e20` | Presentation tests | [P6-T1](docs/verification/p6-t1-status-rendering.md) |
+| 거절 이유 명령 칸 고정, Software Abort ≠ E-Stop | current source (unbound to `2d29933`) | `RequestStopAsync_WhileAlarm_RejectsWithCoreIneligibleReason`; `RequestAbortAsync_WhileStartAwaitingAck_WritesAbortAndKeepsHoldUntilAck` | 라이브 PNG 제외. Abort는 히터 Off 요청이며 하드웨어 비상정지가 아님 |
 
-없는 증거: Reset 성공, Modbus/TCP, 실장비, E-Stop/Safety PLC, 현재 UI 스크린샷.
+없는 증거: Reset 성공, Modbus/TCP, 실장비, 하드웨어 E-Stop/Safety PLC, 현재 UI 스크린샷. Software Abort는 PC 히터 Off 선점이며 안전회로가 아니다.
 
 ## 구현 상태와 증거 상태
 
@@ -64,6 +66,7 @@ dotnet test ChamberControlSimulator.slnx --configuration Release --no-build --no
 | P7-T4 app captures | test+log pending operator PNG | no WinForms capture in this session; P0 images not current UI; [status](docs/verification/p7-t4-app-captures.md) |
 | P7-T3 README evidence rewrite | Completed | lead + 6 evidence rows; Reset-success/Modbus/safety demoted |
 | P7-T5 v1.0 receipt | tracked, captures incomplete | [v1.0-release-receipt.md](docs/verification/v1.0-release-receipt.md); no tag/push; live PNGs pending |
+| Software Abort / command rejection label | source in this worktree | Debug Core 47 + Abstractions 22 + Application 80 + Simulation 25 + Presentation 33; Release 미재실행 | Abort ≠ E-Stop; live PNG excluded |
 
 ## 현재 구현된 책임 경계
 
@@ -90,15 +93,15 @@ Form1 / IEquipmentView
   ├→ IEquipmentObservationRuntime → EquipmentCoordinator(IPlcObservationPort)
   └→ IEquipmentCommandRuntime → EquipmentCommandRuntime(IPlcOutputPort)
        → shared P3/P4 semaphore + monotonic lifecycle hold
-  → ThermalObservation / exact Start·Stop·Reset ACK / ControllerSnapshot rendering
+  → ThermalObservation / exact Start·Stop·Reset·Abort ACK / ControllerSnapshot rendering
 ```
 
 - P3 `EquipmentCoordinator`는 read-only `IPlcObservationPort`만 받는다. P4 `EquipmentCommandCoordinator`는 `ThermalController`와 narrow `IPlcOutputPort`만 받고, broad `IPlcClient`나 observation/input/connection capability를 받지 않는다. `IPlcClient`는 두 narrow port의 empty compatibility composite다.
-- Presentation도 observation-only `IEquipmentObservationRuntime`과 named Start/Stop/Reset + admission-stop `IEquipmentCommandRuntime`을 분리한다. concrete wrapper 하나가 두 capability를 구현하고 `Program`은 같은 owner를 두 narrow reference로 Presenter에 주입한다.
+- Presentation도 observation-only `IEquipmentObservationRuntime`과 named Start/Stop/Reset/Abort + admission-stop `IEquipmentCommandRuntime`을 분리한다. concrete wrapper 하나가 두 capability를 구현하고 `Program`은 같은 owner를 두 narrow reference로 Presenter에 주입한다.
 - `VirtualPlcObservationInputControl`에는 temperature/sensor/door setter만 있고 `Advance`, ACK suppression, transport fault control이 없다. `VirtualPlcSimulationControl`은 P4-oriented test control로만 남는다.
 - Presenter는 Start/Stop/Reset handler를 같은 owner로 await하고 active command/cycle을 따로 추적한다. close는 command admission stop → shared cancellation → both-task join → one-time owner disposal 순서이며 disposed 뒤 late render를 막는다.
 
-P4-T5는 UI Start/Stop/Reset을 하나의 awaited command owner에 연결한다. 세 command 모두 exact fresh semantic ACK와 Core revalidation 뒤에만 complete하며, legacy direct Core Stop/Reset shortcut은 제거됐다. timeout/ambiguity 뒤 자동 retry, replay, release, reconnect recovery는 없다.
+P4-T5는 UI Start/Stop/Reset을 하나의 awaited command owner에 연결한다. 세 command 모두 exact fresh semantic ACK와 Core revalidation 뒤에만 complete하며, legacy direct Core Stop/Reset shortcut은 제거됐다. timeout/ambiguity 뒤 자동 retry, replay, release, reconnect recovery는 없다. Software Abort는 같은 write/ACK 수명이지만 미완료 Start/Stop/Reset을 선점할 수 있다. 거절은 명령 칸 라벨이며 MessageBox가 아니다. Abort 성공은 Alarm 해제·Reset·하드웨어 E-Stop이 아니다.
 
 ### P4-T1 command reservation and ID admission — completed
 

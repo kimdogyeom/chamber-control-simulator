@@ -16,7 +16,8 @@ public enum ControllerCommandKind
 {
 	Start,
 	Stop,
-	Reset
+	Reset,
+	Abort
 }
 
 public sealed class ControllerCommandReservation

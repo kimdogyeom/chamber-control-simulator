@@ -93,7 +93,7 @@ public sealed class EquipmentCommandRuntimeVirtualPlcTests
 		Assert.AreEqual(25d, exactStop.ObservationResult.InputSnapshot!.CurrentTemperature, 0.0001d);
 		Assert.AreEqual(stop.CommandId, exactStop.ObservationResult.InputSnapshot.AcknowledgedCommandId);
 		Assert.AreEqual(EquipmentCommandLifecycleDisposition.Completed, exactStop.CommandDisposition);
-		Assert.AreEqual(25d, afterStop.ObservationResult.InputSnapshot!.CurrentTemperature, 0.0001d);
+		Assert.AreEqual(20d, afterStop.ObservationResult.InputSnapshot!.CurrentTemperature, 0.0001d);
 		Assert.AreEqual(ControllerState.Idle, controller.Snapshot.State);
 		Assert.HasCount(1, controller.EventHistory.Where(entry => entry.Event == "Stop"));
 	}
@@ -121,7 +121,7 @@ public sealed class EquipmentCommandRuntimeVirtualPlcTests
 
 		Assert.AreEqual(start.CommandId, semanticPoint.ObservationResult.InputSnapshot!.AcknowledgedCommandId);
 		Assert.AreEqual(25d, semanticPoint.ObservationResult.InputSnapshot.CurrentTemperature, 0.0001d);
-		Assert.AreEqual(25d, afterStop.ObservationResult.InputSnapshot!.CurrentTemperature, 0.0001d);
+		Assert.AreEqual(20d, afterStop.ObservationResult.InputSnapshot!.CurrentTemperature, 0.0001d);
 		Assert.AreEqual(EquipmentCommandLifecycleDisposition.AwaitingAcknowledgement, afterStop.CommandDisposition);
 		Assert.AreEqual(ControllerState.Heating, controller.Snapshot.State);
 		Assert.IsEmpty(controller.EventHistory.Where(entry => entry.Event == "Stop"));
@@ -228,6 +228,36 @@ public sealed class EquipmentCommandRuntimeVirtualPlcTests
 		var afterStopAck = await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
 		Assert.IsFalse(afterStopAck.ObservationResult.InputSnapshot!.HeaterEnabled);
 	}
+	// 목적: Hold가 끝나 Cooling이 되면 같은 게이트에서 자동 Stop이 히터를 끄고 Core는 Cooling을 유지하는지 검증한다.
+	// 예상 결과: Cooling 관측 cycle에 IsAutomatic Stop이 들어가고, Stop ACK 뒤 히터 OFF·Core Cooling이다.
+	// 완료 조건: Cooling 중 히터가 켜진 채 온도가 계속 오르지 않는다.
+	[TestMethod]
+	public async Task CycleAsync_WhenCoreCoolingAndHeaterEnabled_AdmitsAutomaticStopWithoutLeavingCooling()
+	{
+		var plc = new VirtualPlcClient(new VirtualPlcOptions(20d, 5d, TimeSpan.Zero));
+		var controller = new ThermalController(
+			new Recipe("Fast", 21d, 40d, TimeSpan.FromMilliseconds(1)),
+			new SimulationSettings(20d, TimeSpan.FromSeconds(3)));
+		await using var runtime = new EquipmentCommandRuntime(controller, plc, plc, TimeProvider.System);
+		await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		await runtime.RequestStartAsync(CancellationToken.None);
+		plc.SimulationControl.Advance(TimeSpan.FromMilliseconds(1));
+		await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		plc.ObservationInputControl.SetCurrentTemperature(21d);
+		await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		var coolingCycle = await runtime.CycleAsync(TimeSpan.FromMilliseconds(1), CancellationToken.None);
+
+		Assert.AreEqual(ControllerState.Cooling, controller.Snapshot.State);
+		Assert.IsTrue(runtime.CurrentState.IsAutomatic);
+		Assert.AreEqual(ControllerCommandKind.Stop, runtime.CurrentState.Kind);
+		Assert.AreNotEqual(EquipmentCommandLifecycleDisposition.NoCommand, coolingCycle.CommandDisposition);
+
+		plc.SimulationControl.Advance(TimeSpan.FromMilliseconds(1));
+		var afterStopAck = await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		Assert.IsFalse(afterStopAck.ObservationResult.InputSnapshot!.HeaterEnabled);
+		Assert.AreEqual(ControllerState.Cooling, controller.Snapshot.State);
+	}
+
 	private static ThermalController CreateRecoveryReadyController()
 	{
 		var controller = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);

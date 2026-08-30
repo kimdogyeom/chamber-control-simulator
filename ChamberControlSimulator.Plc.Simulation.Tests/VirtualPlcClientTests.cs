@@ -68,6 +68,28 @@ public sealed class VirtualPlcClientTests
 		Assert.AreEqual(1L, atSemanticPoint.AcknowledgedCommandId);
 		Assert.AreEqual(25d, afterHeating.CurrentTemperature);
 	}
+	// 목적: 히터 OFF일 때 plant가 초기 온도로 식는지 검증한다.
+	// 예상 결과: Start 적분 후 Stop ACK 다음 Advance에서 온도가 내려간다.
+	// 완료 조건: Cooling 구간에 히터가 꺼져 있으면 온도가 오르지 않는다.
+	[TestMethod]
+	public async Task Advance_WhenHeaterOffAboveInitial_CoolsTowardInitialTemperature()
+	{
+		var client = new VirtualPlcClient(new VirtualPlcOptions(20d, 5d, TimeSpan.Zero));
+		IPlcClient port = client;
+		await port.ConnectAsync(CancellationToken.None);
+		await port.WriteOutputsAsync(new PlcOutputCommand(1, PlcCommandKind.Start), CancellationToken.None);
+		client.SimulationControl.Advance(TimeSpan.FromSeconds(2));
+		var heated = await port.ReadInputsAsync(CancellationToken.None);
+		await port.WriteOutputsAsync(new PlcOutputCommand(2, PlcCommandKind.Stop), CancellationToken.None);
+		client.SimulationControl.Advance(TimeSpan.FromSeconds(1));
+		var cooling = await port.ReadInputsAsync(CancellationToken.None);
+
+		Assert.AreEqual(30d, heated.CurrentTemperature);
+		Assert.IsTrue(heated.HeaterEnabled);
+		Assert.AreEqual(25d, cooling.CurrentTemperature);
+		Assert.IsFalse(cooling.HeaterEnabled);
+	}
+
 
 	// 목적: Start semantic point를 넘는 one-step Advance와 equivalent split Advance가 같은 plant/ACK 결과인지 검증한다.
 	// 예상 결과: delay 2초 뒤 총 3초를 one-step 또는 2+1초로 진행하면 모두 온도 25와 ACK 1이다.
@@ -113,8 +135,8 @@ public sealed class VirtualPlcClientTests
 		Assert.IsFalse(snapshot.DoorClosed);
 	}
 	// 목적: Heating 중 문 열림이 Core 알람과 별개로 virtual heater를 즉시 끄는지 검증한다.
-	// 예상 결과: Start semantic ACK 뒤 온도가 오르다가 SetDoorClosed(false) 이후 Advance해도 온도가 유지된다.
-	// 완료 조건: 문 열림 interlock이 plant heater latch를 끄고 이후 Start pending이 히터를 재점화하지 않는다.
+	// 예상 결과: Start semantic ACK 뒤 온도가 오르다가 SetDoorClosed(false) 이후 Advance해도 온도가 더 오르지 않는다.
+	// 완료 조건: 문 열림 interlock이 plant heater latch를 끈다.
 	[TestMethod]
 	public async Task SetDoorClosedFalse_AfterStartHeater_StopsTemperatureRise()
 	{
@@ -132,7 +154,7 @@ public sealed class VirtualPlcClientTests
 		Assert.AreEqual(25d, heating.CurrentTemperature);
 		Assert.IsTrue(heating.HeaterEnabled);
 		Assert.IsFalse(afterDoorOpen.DoorClosed);
-		Assert.AreEqual(25d, afterDoorOpen.CurrentTemperature);
+		Assert.IsLessThanOrEqualTo(heating.CurrentTemperature, afterDoorOpen.CurrentTemperature);
 		Assert.IsFalse(afterDoorOpen.HeaterEnabled);
 	}
 

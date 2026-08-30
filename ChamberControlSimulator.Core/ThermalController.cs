@@ -70,6 +70,16 @@ public sealed class ThermalController
 		_commandReservation = new ControllerCommandReservation(kind);
 		return _commandReservation;
 	}
+	internal ControllerCommandReservation? TryReserveAbortPreempting()
+	{
+		if (_commandReservation is not null)
+		{
+			_commandReservation.Invalidate();
+			_commandReservation = null;
+		}
+
+		return TryReserveCommand(ControllerCommandKind.Abort);
+	}
 
 	internal bool TryCompleteAcknowledgedCommand(ControllerCommandReservation reservation)
 	{
@@ -262,6 +272,7 @@ public sealed class ThermalController
 		ControllerCommandKind.Start => _state == ControllerState.Idle && !_doorOpen && _currentTemperature < _recipe.SafetyTemperature,
 		ControllerCommandKind.Stop => _state is not ControllerState.Idle and not ControllerState.Alarm and not ControllerState.Recovery,
 		ControllerCommandKind.Reset => _state == ControllerState.Recovery && _recoveryReady,
+		ControllerCommandKind.Abort => true,
 		_ => false
 	};
 
@@ -275,6 +286,13 @@ public sealed class ThermalController
 				TransitionTo(ControllerState.Heating);
 				return;
 			case ControllerCommandKind.Stop:
+				if (_state is ControllerState.Cooling or ControllerState.Complete)
+				{
+					AddEvent("Stop");
+					PublishSnapshot();
+					return;
+				}
+
 				_state = ControllerState.Idle;
 				_activeAlarm = null;
 				_pendingAlarms.Clear();
@@ -295,6 +313,15 @@ public sealed class ThermalController
 				_feedbackPausedElapsed = TimeSpan.Zero;
 				_state = ControllerState.Idle;
 				AddEvent("Reset");
+				PublishSnapshot();
+				return;
+			case ControllerCommandKind.Abort:
+				if (_state is ControllerState.Precheck or ControllerState.Heating or ControllerState.Holding or ControllerState.Cooling or ControllerState.Complete)
+				{
+					_state = ControllerState.Idle;
+				}
+
+				AddEvent("Abort");
 				PublishSnapshot();
 				return;
 			default:

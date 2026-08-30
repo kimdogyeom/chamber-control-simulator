@@ -46,7 +46,8 @@ public sealed class PlcOutputCommandTests
 			{
 				PlcCommandKind.Start,
 				PlcCommandKind.Stop,
-				PlcCommandKind.Reset
+				PlcCommandKind.Reset,
+				PlcCommandKind.Abort
 			},
 			Enum.GetValues<PlcCommandKind>());
 	}

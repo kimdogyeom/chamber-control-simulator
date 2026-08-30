@@ -105,6 +105,9 @@ public sealed class EquipmentCommandRuntime : IAsyncDisposable
 	public Task<EquipmentCommandRequestResult> RequestResetAsync(CancellationToken cancellationToken) =>
 		RequestCommandAsync(ControllerCommandKind.Reset, cancellationToken);
 
+	public Task<EquipmentCommandRequestResult> RequestAbortAsync(CancellationToken cancellationToken) =>
+		RequestCommandAsync(ControllerCommandKind.Abort, cancellationToken);
+
 	private async Task<EquipmentCommandRequestResult> RequestCommandAsync(
 		ControllerCommandKind kind,
 		CancellationToken cancellationToken)
@@ -114,10 +117,15 @@ public sealed class EquipmentCommandRuntime : IAsyncDisposable
 			throw new ArgumentOutOfRangeException(nameof(kind));
 		}
 
-		if (Volatile.Read(ref _acceptingAdmission) == 0 || HasOutstandingCommand(CurrentState))
+		var isAbort = kind == ControllerCommandKind.Abort;
+		if (Volatile.Read(ref _acceptingAdmission) == 0)
 		{
-			_isAutomatic = false;
-			return RejectedRequest();
+			return RejectRequest(kind, EquipmentCommandRejectionReason.AdmissionClosed);
+		}
+
+		if (!isAbort && HasOutstandingCommand(CurrentState))
+		{
+			return RejectRequest(kind, EquipmentCommandRejectionReason.OutstandingCommand);
 		}
 
 		await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -126,9 +134,14 @@ public sealed class EquipmentCommandRuntime : IAsyncDisposable
 		try
 		{
 			ThrowIfDisposed();
-			if (Volatile.Read(ref _acceptingAdmission) == 0 || HasOutstandingCommand(CurrentState))
+			if (Volatile.Read(ref _acceptingAdmission) == 0)
 			{
-				return RejectedRequest();
+				return RejectRequest(kind, EquipmentCommandRejectionReason.AdmissionClosed);
+			}
+
+			if (!isAbort && HasOutstandingCommand(CurrentState))
+			{
+				return RejectRequest(kind, EquipmentCommandRejectionReason.OutstandingCommand);
 			}
 
 			var baseline = _latestObservationResult;
@@ -142,13 +155,15 @@ public sealed class EquipmentCommandRuntime : IAsyncDisposable
 					null);
 			}
 
-			var admission = _commandCoordinator.TryAdmitAfter(
-				kind,
-				baseline.InputSnapshot.AcknowledgedCommandId);
+			var admission = isAbort
+				? _commandCoordinator.TryAdmitAbortPreempting(baseline.InputSnapshot.AcknowledgedCommandId)
+				: _commandCoordinator.TryAdmitAfter(kind, baseline.InputSnapshot.AcknowledgedCommandId);
 			if (admission.Disposition != EquipmentCommandAdmissionDisposition.Accepted || admission.Admission is null)
 			{
-				SetState(EquipmentCommandLifecycleDisposition.AdmissionRejected, null, null);
-				return RejectedRequest();
+				var reason = admission.Disposition == EquipmentCommandAdmissionDisposition.Busy
+					? EquipmentCommandRejectionReason.OutstandingCommand
+					: EquipmentCommandRejectionReason.CoreIneligible;
+				return RejectRequest(kind, reason);
 			}
 
 			_pendingCommandId = admission.Admission.CommandId;
@@ -272,9 +287,17 @@ public sealed class EquipmentCommandRuntime : IAsyncDisposable
 		}
 	}
 
-	private EquipmentCommandRequestResult RejectedRequest() => new(
-		EquipmentCommandLifecycleDisposition.AdmissionRejected,
-		null);
+	private EquipmentCommandRequestResult RejectRequest(
+		ControllerCommandKind kind,
+		EquipmentCommandRejectionReason reason)
+	{
+		_isAutomatic = false;
+		SetRejectedState(kind, reason);
+		return new EquipmentCommandRequestResult(
+			EquipmentCommandLifecycleDisposition.AdmissionRejected,
+			null,
+			reason);
+	}
 
 	private bool HasReceiptDeadlineElapsed() =>
 		_writeInvokedTimestamp is not null &&
@@ -338,7 +361,9 @@ public sealed class EquipmentCommandRuntime : IAsyncDisposable
 	private void SetState(
 		EquipmentCommandLifecycleDisposition disposition,
 		long? commandId,
-		ControllerCommandKind? kind)
+		ControllerCommandKind? kind,
+		EquipmentCommandRejectionReason rejectionReason = EquipmentCommandRejectionReason.None,
+		ControllerCommandKind? rejectedKind = null)
 	{
 		Volatile.Write(
 			ref _currentState,
@@ -348,7 +373,26 @@ public sealed class EquipmentCommandRuntime : IAsyncDisposable
 				kind,
 				_writeInvokedTimestamp,
 				_acknowledgementStartedTimestamp,
-				_isAutomatic));
+				_isAutomatic,
+				rejectionReason,
+				rejectedKind));
+	}
+
+	private void SetRejectedState(ControllerCommandKind kind, EquipmentCommandRejectionReason reason)
+	{
+		var current = CurrentState;
+		if (HasOutstandingCommand(current))
+		{
+			SetState(current.Disposition, current.CommandId, current.Kind, reason, kind);
+			return;
+		}
+
+		SetState(
+			EquipmentCommandLifecycleDisposition.AdmissionRejected,
+			null,
+			null,
+			reason,
+			kind);
 	}
 
 	private void SetTerminalState(EquipmentCommandLifecycleDisposition disposition) =>
@@ -379,8 +423,13 @@ public sealed class EquipmentCommandRuntime : IAsyncDisposable
 		if (observation is null ||
 			observation.Disposition != EquipmentCycleDisposition.Completed ||
 			observation.InputSnapshot is null ||
-			!observation.InputSnapshot.HeaterEnabled ||
-			observation.ControllerSnapshot.State != ControllerState.Complete)
+			!observation.InputSnapshot.HeaterEnabled)
+		{
+			return;
+		}
+
+		var controllerState = observation.ControllerSnapshot.State;
+		if (controllerState is not ControllerState.Complete and not ControllerState.Cooling)
 		{
 			return;
 		}
@@ -392,7 +441,11 @@ public sealed class EquipmentCommandRuntime : IAsyncDisposable
 		if (admission.Disposition != EquipmentCommandAdmissionDisposition.Accepted || admission.Admission is null)
 		{
 			_isAutomatic = false;
-			SetState(EquipmentCommandLifecycleDisposition.AdmissionRejected, null, null);
+			SetRejectedState(
+				ControllerCommandKind.Stop,
+				admission.Disposition == EquipmentCommandAdmissionDisposition.Busy
+					? EquipmentCommandRejectionReason.OutstandingCommand
+					: EquipmentCommandRejectionReason.CoreIneligible);
 			return;
 		}
 

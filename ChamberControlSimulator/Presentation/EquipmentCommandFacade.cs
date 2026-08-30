@@ -21,6 +21,8 @@ namespace ChamberControlSimulator.Presentation
 
 		public Task<EquipmentCommandRequestResult> RequestResetAsync(CancellationToken cancellationToken) =>
 			_commandRuntime.RequestResetAsync(cancellationToken);
+		public Task<EquipmentCommandRequestResult> RequestAbortAsync(CancellationToken cancellationToken) =>
+			_commandRuntime.RequestAbortAsync(cancellationToken);
 
 		public void StopAdmission() => _commandRuntime.StopAdmission();
 	}

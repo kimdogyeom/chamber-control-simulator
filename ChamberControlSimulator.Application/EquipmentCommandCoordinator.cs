@@ -166,6 +166,47 @@ public sealed class EquipmentCommandCoordinator
 			return new EquipmentCommandAdmissionResult(EquipmentCommandAdmissionDisposition.Accepted, _pendingCommand);
 		}
 	}
+	internal EquipmentCommandAdmissionResult TryAdmitAbortPreempting(long minimumExclusiveCommandId)
+	{
+		if (minimumExclusiveCommandId < 0)
+		{
+			throw new ArgumentOutOfRangeException(nameof(minimumExclusiveCommandId));
+		}
+
+		lock (_gate)
+		{
+			if (_pendingCommand is { Kind: ControllerCommandKind.Abort })
+			{
+				return new EquipmentCommandAdmissionResult(EquipmentCommandAdmissionDisposition.Busy, null);
+			}
+
+			if (_pendingCommand is not null)
+			{
+				_reservation?.Invalidate();
+				_reservation = null;
+				_pendingCommand = null;
+				_dispatchStarted = false;
+				_completionAttempted = false;
+			}
+
+			if (_nextCommandId is null || minimumExclusiveCommandId == long.MaxValue)
+			{
+				throw new InvalidOperationException("Command ID allocation is exhausted.");
+			}
+
+			var commandId = Math.Max(_nextCommandId.Value, minimumExclusiveCommandId + 1);
+			var reservation = _controller.TryReserveAbortPreempting();
+			if (reservation is null)
+			{
+				return new EquipmentCommandAdmissionResult(EquipmentCommandAdmissionDisposition.Ineligible, null);
+			}
+
+			_nextCommandId = commandId == long.MaxValue ? null : commandId + 1;
+			_pendingCommand = new EquipmentCommandAdmission(commandId, ControllerCommandKind.Abort);
+			_reservation = reservation;
+			return new EquipmentCommandAdmissionResult(EquipmentCommandAdmissionDisposition.Accepted, _pendingCommand);
+		}
+	}
 
 	public async Task<EquipmentCommandTransportResult> DispatchPendingAsync(CancellationToken cancellationToken)
 	{
@@ -229,6 +270,7 @@ public sealed class EquipmentCommandCoordinator
 		ControllerCommandKind.Start => PlcCommandKind.Start,
 		ControllerCommandKind.Stop => PlcCommandKind.Stop,
 		ControllerCommandKind.Reset => PlcCommandKind.Reset,
+		ControllerCommandKind.Abort => PlcCommandKind.Abort,
 		_ => throw new InvalidOperationException($"Unsupported controller command kind: {kind}.")
 	};
 }

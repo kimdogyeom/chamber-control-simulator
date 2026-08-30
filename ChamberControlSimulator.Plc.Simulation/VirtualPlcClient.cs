@@ -153,6 +153,14 @@ public sealed class VirtualPlcClient : IPlcClient
 				_heaterEnabled = false;
 			}
 		}
+		else if (_currentTemperature > _options.InitialTemperature)
+		{
+			_currentTemperature -= _options.HeatingRatePerSecond * elapsed.TotalSeconds;
+			if (_currentTemperature < _options.InitialTemperature)
+			{
+				_currentTemperature = _options.InitialTemperature;
+			}
+		}
 
 		_virtualTime = targetTime;
 	}
@@ -218,6 +226,7 @@ public sealed class VirtualPlcClient : IPlcClient
 					_heaterEnabled = _doorClosed && _sensorHealthy && _currentTemperature < _options.OverTemperatureLimit;
 					break;
 				case PlcCommandKind.Stop:
+				case PlcCommandKind.Abort:
 					_heaterEnabled = false;
 					break;
 				case PlcCommandKind.Reset:

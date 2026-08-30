@@ -24,6 +24,7 @@ namespace ChamberControlSimulator
 
 		public event Func<Task>? StartRequested;
 		public event Func<Task>? StopRequested;
+		public event Func<Task>? AbortRequested;
 		public event EventHandler? AcknowledgeRequested;
 		public event Func<Task>? ResetRequested;
 		public event EventHandler? DoorToggleRequested;
@@ -141,6 +142,17 @@ namespace ChamberControlSimulator
 			try
 			{
 				await InvokeCommandRequestedAsync(StopRequested);
+			}
+			catch (Exception exception)
+			{
+				System.Diagnostics.Trace.TraceError(exception.ToString());
+			}
+		}
+		private async void btnAbort_Click(object sender, EventArgs e)
+		{
+			try
+			{
+				await InvokeCommandRequestedAsync(AbortRequested);
 			}
 			catch (Exception exception)
 			{
@@ -303,11 +315,36 @@ namespace ChamberControlSimulator
 			_lastStatus = status;
 			lblPlcConnection.Text = $"PLC Connection : {status.ConnectionState}";
 			lblSynchronization.Text = $"Synchronization : {status.SynchronizationState}";
-			lblCommandStatus.Text = status.CommandDisposition == EquipmentCommandLifecycleDisposition.NoCommand
-				? "Command : None"
-				: status.IsAutomatic && status.CommandKind == ControllerCommandKind.Stop
-					? $"Command : Stop #{status.CommandId?.ToString() ?? "—"} (auto) {status.CommandDisposition}"
-					: $"Command : {status.CommandKind?.ToString() ?? "—"} #{status.CommandId?.ToString() ?? "—"} {status.CommandDisposition}";
+			lblCommandStatus.Text = FormatCommandStatus(status);
+		}
+
+		internal static string FormatCommandStatus(EquipmentStatusViewModel status)
+		{
+			if (status.CommandDisposition == EquipmentCommandLifecycleDisposition.NoCommand &&
+				status.RejectionReason == EquipmentCommandRejectionReason.None)
+			{
+				return "Command : None";
+			}
+
+			var command = status.IsAutomatic && status.CommandKind == ControllerCommandKind.Stop
+				? $"Stop #{status.CommandId?.ToString() ?? "—"} (auto) {status.CommandDisposition}"
+				: status.CommandDisposition == EquipmentCommandLifecycleDisposition.NoCommand
+					? "None"
+					: $"{status.CommandKind?.ToString() ?? "—"} #{status.CommandId?.ToString() ?? "—"} {status.CommandDisposition}";
+			if (status.RejectionReason == EquipmentCommandRejectionReason.None)
+			{
+				return $"Command : {command}";
+			}
+
+			var rejected = status.RejectedKind?.ToString() ?? "Command";
+			var reason = status.RejectionReason switch
+			{
+				EquipmentCommandRejectionReason.AdmissionClosed => "admission closed",
+				EquipmentCommandRejectionReason.OutstandingCommand => "command already outstanding",
+				EquipmentCommandRejectionReason.CoreIneligible => "not eligible",
+				_ => status.RejectionReason.ToString()
+			};
+			return $"Command : {command} — {rejected} rejected ({reason})";
 		}
 
 		private bool IsEventLogAtBottom()

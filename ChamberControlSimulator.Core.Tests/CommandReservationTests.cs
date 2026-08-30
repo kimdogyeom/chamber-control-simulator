@@ -225,6 +225,36 @@ public sealed class CommandReservationTests
 		Assert.AreEqual(ControllerState.Idle, controller.Snapshot.State);
 		Assert.IsEmpty(controller.EventHistory);
 	}
+	[TestMethod]
+	public void TryCompleteAcknowledgedCommand_Abort_LeavesAlarmAndTurnsIdleFromHeating()
+	{
+		var controller = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
+		ThermalControllerTestCommands.CompleteStart(controller);
+		var reservation = controller.TryReserveCommand(ControllerCommandKind.Abort);
+		Assert.IsNotNull(reservation);
+
+		var completed = controller.TryCompleteAcknowledgedCommand(reservation);
+
+		Assert.IsTrue(completed);
+		Assert.AreEqual(ControllerState.Idle, controller.Snapshot.State);
+		Assert.HasCount(1, controller.EventHistory.Where(entry => entry.Event == "Abort"));
+	}
+
+	[TestMethod]
+	public void TryReserveAbortPreempting_InvalidatesOutstandingStartReservation()
+	{
+		var controller = new ThermalController(new Recipe(30, 35), SimulationSettings.Illustrative);
+		var start = controller.TryReserveCommand(ControllerCommandKind.Start);
+		Assert.IsNotNull(start);
+
+		var abort = controller.TryReserveAbortPreempting();
+
+		Assert.IsNotNull(abort);
+		Assert.IsFalse(controller.TryCompleteAcknowledgedCommand(start));
+		Assert.IsTrue(controller.TryCompleteAcknowledgedCommand(abort));
+		Assert.AreEqual(ControllerState.Idle, controller.Snapshot.State);
+		Assert.HasCount(1, controller.EventHistory.Where(entry => entry.Event == "Abort"));
+	}
 
 	// 목적: 다른 ThermalController가 발급한 reservation token이 acknowledged completion authority로 재사용되지 않는지 검증한다.
 	// 예상 결과: foreign controller completion은 false이고 두 controller 모두 reservation fence와 Idle state를 보존한다.

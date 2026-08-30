@@ -89,7 +89,17 @@ P0 historical images are the wrong composition root (`Form1 → Presenter → Th
 - Operator: pending I/O 중 앱 종료
 - Expected: cancellation, no duplicate reconnect
 - Evidence: **process exit confirmation / test+log**. No fake screenshot.
+## S13 Software Abort (not E-Stop)
+- Automated: `EquipmentCommandRuntimeTests.RequestAbortAsync_WhileStartAwaitingAck_WritesAbortAndKeepsHoldUntilAck`; `CommandReservationTests.TryReserveAbortPreempting_InvalidatesOutstandingStartReservation`
+- Operator: Start 대기 중 Software Abort
+- Expected UI: Command Abort awaiting ACK; heater off after semantic apply; Alarm/Reset unchanged; label is Software Abort not E-Stop
+- Evidence: **test+log**. Live PNG later (`docs/image` excluded from this commit).
+## S14 command rejection label
+- Automated: `EquipmentCommandRuntimeTests.RequestStopAsync_WhileAlarm_RejectsWithCoreIneligibleReason`; `StopRequested_WhileAlarm_MapsAdmissionRejectedWithoutAutomaticFlag`
+- Operator: Alarm 중 Stop
+- Expected UI: command sector `Stop rejected (not eligible)`; no MessageBox
+- Evidence: **test+log**. Live PNG later.
 
 ## Nonclaims
 
-Reset success, Modbus, real equipment, safety-rated, P0 image reuse as current UI, push/tag.
+Reset success, Modbus, real equipment, safety-rated, hardware E-Stop/Safety PLC, Software Abort as E-Stop, P0 image reuse as current UI, push/tag. Live `docs/image` PNGs are later operator work.

@@ -16,18 +16,28 @@ public enum EquipmentCommandLifecycleDisposition
 	AcknowledgedButCoreIneligible
 }
 
+public enum EquipmentCommandRejectionReason
+{
+	None,
+	AdmissionClosed,
+	OutstandingCommand,
+	CoreIneligible
+}
+
 public sealed record EquipmentCommandLifecycleState(
 	EquipmentCommandLifecycleDisposition Disposition,
 	long? CommandId,
 	ControllerCommandKind? Kind,
 	long? WriteInvokedTimestamp,
 	long? AcknowledgementStartedTimestamp,
-	bool IsAutomatic = false);
+	bool IsAutomatic = false,
+	EquipmentCommandRejectionReason RejectionReason = EquipmentCommandRejectionReason.None,
+	ControllerCommandKind? RejectedKind = null);
 
 public sealed record EquipmentCommandRequestResult(
 	EquipmentCommandLifecycleDisposition Disposition,
-	long? CommandId);
-
+	long? CommandId,
+	EquipmentCommandRejectionReason RejectionReason = EquipmentCommandRejectionReason.None);
 public sealed record EquipmentCommandCycleResult(
 	EquipmentCycleResult ObservationResult,
 	EquipmentCommandLifecycleDisposition CommandDisposition,

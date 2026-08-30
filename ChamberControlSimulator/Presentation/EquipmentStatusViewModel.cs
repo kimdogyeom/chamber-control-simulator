@@ -10,5 +10,7 @@ namespace ChamberControlSimulator.Presentation
 		EquipmentCommandLifecycleDisposition CommandDisposition,
 		long? CommandId,
 		ControllerCommandKind? CommandKind,
-		bool IsAutomatic = false);
+		bool IsAutomatic = false,
+		EquipmentCommandRejectionReason RejectionReason = EquipmentCommandRejectionReason.None,
+		ControllerCommandKind? RejectedKind = null);
 }

@@ -186,6 +186,26 @@ public sealed class ThermalControllerTests
 		Assert.AreEqual("Stop", controller.EventHistory[^1].Event);
 		CollectionAssert.Contains(controller.EventHistory.Select(entry => entry.Event).ToList(), "Start");
 	}
+	// 목적: Cooling에서 Stop ACK가 공정을 Idle로 끊지 않는지 검증한다.
+	// 예상 결과: Cooling 유지, Stop 이벤트만 추가.
+	// 완료 조건: 히터 OFF용 Stop이 Cooling→Idle abort가 아니다.
+	[TestMethod]
+	public void Stop_WhenCooling_KeepsCoolingAndRecordsStop()
+	{
+		var controller = new ThermalController(
+			new Recipe("Fast", 21d, 40d, TimeSpan.FromMilliseconds(1)),
+			new SimulationSettings(20d, TimeSpan.FromSeconds(3)));
+		ThermalControllerTestCommands.CompleteStart(controller);
+		controller.ApplyObservation(new ThermalObservation(false, true, 21d), TimeSpan.Zero);
+		controller.ApplyObservation(new ThermalObservation(false, true, 21d), TimeSpan.FromMilliseconds(1));
+		Assert.AreEqual(ControllerState.Cooling, controller.Snapshot.State);
+
+		ThermalControllerTestCommands.CompleteStop(controller);
+
+		Assert.AreEqual(ControllerState.Cooling, controller.Snapshot.State);
+		Assert.AreEqual("Stop", controller.EventHistory[^1].Event);
+	}
+
 
 	[TestMethod]
 	public void EventHistory_CannotBeMutatedOutsideTheController()

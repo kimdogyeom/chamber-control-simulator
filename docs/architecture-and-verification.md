@@ -61,6 +61,7 @@ PC application의 Door/temperature/sensor interlock은 software policy demonstra
 | P7-T1 scenario matrix | Completed | tracked `docs/verification/scenario-matrix.md`; S01–S12 bound to existing tests; captures Planned until P7-T4 |
 | P7-T2 clean Release verification | Completed | `2d29933`; SDK 10.0.400; Release 190/190; [receipt](verification/p7-t2-release-verification.md) |
 | P7-T5 v1.0 receipt | tracked | [v1.0-release-receipt.md](verification/v1.0-release-receipt.md); live captures pending; no tag |
+| Software Abort / command rejection label | source in this worktree | Debug Core 47 + Abstractions 22 + Application 80 + Simulation 25 + Presentation 33; Release 미재실행. Abort ≠ E-Stop. live PNG excluded |
 
 각 P3/P4/P5/P6 자동 검증 수치는 해당 source SHA와 verification receipt에만 bound된다. P6 수치를 P7 captures, production release 또는 safety claim으로 확장하지 않는다.
 
@@ -78,10 +79,10 @@ Form1 / IEquipmentView
   ├→ IEquipmentObservationRuntime → EquipmentCoordinator(IPlcObservationPort)
   └→ IEquipmentCommandRuntime → EquipmentCommandRuntime(IPlcOutputPort)
        → one shared P3/P4 semaphore + monotonic lifecycle state
-  → ThermalObservation / exact Start·Stop·Reset ACK / ControllerSnapshot rendering
+  → ThermalObservation / exact Start·Stop·Reset·Abort ACK / ControllerSnapshot rendering
 ```
 
-`Program.CreateObservationRuntime(...)`은 concrete `EquipmentObservationRuntime` owner와 narrow `VirtualPlcObservationInputControl`을 구성한다. owner는 observation-only `IEquipmentObservationRuntime`과 named Start/Stop/Reset + admission-stop `IEquipmentCommandRuntime`을 따로 구현하고 Presenter는 두 interface reference를 분리해 받는다. input facade에는 `Advance`, ACK suppression, transport fault API가 없다.
+`Program.CreateObservationRuntime(...)`은 concrete `EquipmentObservationRuntime` owner와 narrow `VirtualPlcObservationInputControl`을 구성한다. owner는 observation-only `IEquipmentObservationRuntime`과 named Start/Stop/Reset/Abort + admission-stop `IEquipmentCommandRuntime`을 따로 구현하고 Presenter는 두 interface reference를 분리해 받는다. input facade에는 `Advance`, ACK suppression, transport fault API가 없다. Software Abort는 하드웨어 E-Stop이 아니다.
 
 ### 4.3 P1/P2/P3 Application boundary
 
@@ -173,7 +174,7 @@ Presentation capability는 `IEquipmentObservationRuntime`과 `IEquipmentCommandR
 ### 4.8 P4-T5 complete command-family boundary
 
 ```text
-named Start / Stop / Reset request
+named Start / Stop / Reset / Abort request
   -> one private RequestCommandAsync(kind)
   -> one coordinator pending reservation + one output write
   -> exact matching Written (transport evidence only)
@@ -182,9 +183,9 @@ named Start / Stop / Reset request
   -> success-only global-fence release
 ```
 
-Stop은 priority/preemption 예외가 아니며 pending/timeout/reconciliation/Core-ineligible command가 있으면 세 kind 모두 새 ID/write 없이 거절된다. successful completion만 coordinator reservation과 runtime active fields를 지우고 `Completed` terminal evidence는 유지한다.
+Stop은 priority/preemption 예외가 아니며 pending/timeout/reconciliation/Core-ineligible command가 있으면 Start/Stop/Reset은 새 ID/write 없이 거절된다. Software Abort만 미완료 명령을 무효화하고 히터 Off write를 요청할 수 있다. successful completion만 coordinator reservation과 runtime active fields를 지우고 `Completed` terminal evidence는 유지한다. Abort 성공은 Alarm 해제·Reset·하드웨어 E-Stop이 아니다. 거절은 MessageBox 없이 명령 칸에 `admission closed` / `command already outstanding` / `not eligible`을 남긴다.
 
-Virtual semantic time에서 Start는 heater-on, Stop은 heater-off를 적용한 뒤 optional ACK publication을 처리한다. 따라서 suppressed Stop ACK는 no-effect proof가 아니다. Reset은 command/ACK만 모델링하며 plant, alarm, safety, reconciliation state를 지우는 shortcut이 없다.
+Virtual semantic time에서 Start는 heater-on, Stop과 Abort는 heater-off를 적용한 뒤 optional ACK publication을 처리한다. 따라서 suppressed Stop/Abort ACK는 no-effect proof가 아니다. Reset은 command/ACK만 모델링하며 plant, alarm, safety, reconciliation state를 지우는 shortcut이 없다.
 
 Recovery-ready 이전 Reset은 Core reservation 단계에서 거절돼 write가 없다. stale/lower/same-sequence ACK는 completion authority가 아니어서 대기를 유지한다. dispatch 뒤 eligibility invalidation, higher/mismatched reconciliation, exact 3초 ACK timeout, timeout 뒤 delayed exact ACK는 fail-closed terminal hold다.
 
@@ -264,15 +265,15 @@ P4 ReceiptTimedOut hold
 | --- | --- | --- |
 | `Form1` | UI event 발생과 snapshot/event log rendering | Alarm, Recovery, Reset 판단 / PLC I/O |
 | `IEquipmentView` | View input/output contract | Core 또는 communication policy 소유 |
-| `IEquipmentObservationRuntime` | observation input/cycle/disposal; WinForms cycle만 Virtual PLC `Advance` | command 인터페이스 구현, RequestStart/Stop/Reset |
-| `IEquipmentCommandRuntime` | named Start/Stop/Reset request와 admission stop | observation input/cycle, disposal, PLC protocol policy |
+| `IEquipmentObservationRuntime` | observation input/cycle/disposal; WinForms cycle만 Virtual PLC `Advance` | command 인터페이스 구현, RequestStart/Stop/Reset/Abort |
+| `IEquipmentCommandRuntime` | named Start/Stop/Reset/Abort request와 admission stop | observation input/cycle, disposal, PLC protocol policy |
 | `EquipmentCommandFacade` | Presenter command 참조. 같은 `EquipmentCommandRuntime._gate` | observation cycle, plant Advance |
-| `EquipmentPresenter` | async observation/Start/Stop/Reset 호출, command/cycle no-overlap, close admission-stop/cancel/join/one-dispose/no-late-render, command 라벨 표시, Door 토글은 Completed PLC snapshot만 | PLC protocol/ACK/deadline 판정, Core snapshot으로 문 토글 |
+| `EquipmentPresenter` | async observation/Start/Stop/Reset/Abort 호출, command/cycle no-overlap except Abort preemption, close admission-stop/cancel/join/one-dispose/no-late-render, command 라벨·거절 이유 표시, Door 토글은 Completed PLC snapshot만 | PLC protocol/ACK/deadline 판정, Core snapshot으로 문 토글, MessageBox |
 | `EquipmentCoordinator` | `IPlcObservationPort` connect/read, accepted source-identity mapping, active typed read failure → Core `CommunicationLost`, bounded reconnect epoch, P5-T3 source-fresh barrier, synchronized safe input → `ReportFreshSafeCommunicationEvidence` | WinForms Control 접근, output write/replay, command admission, Reset 판단, Virtual PLC `Advance` |
-| `EquipmentCommandCoordinator` | opaque Core reservation, one pending command-ID, narrow output one-shot dispatch, transport receipt classification, internal command-family completion request | input observation, timeout recovery, retry/replay, reservation release |
-| `EquipmentCommandRuntime` | Start/Stop/Reset baseline/admission/dispatch, Complete 다음 자동 Stop(같은 게이트, heaterEnabled), shared P3/P4 serialization, exact fresh ACK same incarnation, monotonic deadlines, actual write typed failure → Core `CommunicationLost` + observation synchronization invalidation; P4 hold blocks Reset even if Core Recovery-ready | observation-port reconnect 추론/제어, retry/replay/release, Alarm 자동 Stop, Core heater 비트 매핑 |
-| `ThermalController` | phase, interlock, pending alarms including `CommunicationLost`, Recovery/Reset, recipe, event history. 판단과 명령 예약만 | I/O, plant 온도 합성, `Start`/`Stop`/`Tick`/`ReportTemperature`, heaterEnabled 정책 |
-| `VirtualPlcClient` | 명령 실행, plant 적분, 문/센서/과온(천장 500) 히터 래치, `heaterEnabled` 관측 비트 | Recipe 소유, Core 구독, 공정 phase |
+| `EquipmentCommandCoordinator` | opaque Core reservation, one pending command-ID, Abort preemption of a non-Abort pending command, narrow output one-shot dispatch, transport receipt classification, internal command-family completion request | input observation, timeout recovery, retry/replay of Start/Stop/Reset |
+| `EquipmentCommandRuntime` | Start/Stop/Reset/Abort baseline/admission/dispatch, Complete 다음 자동 Stop(같은 게이트, heaterEnabled), shared P3/P4 serialization, exact fresh ACK same incarnation, monotonic deadlines, actual write typed failure → Core `CommunicationLost` + observation synchronization invalidation; P4 hold blocks Reset even if Core Recovery-ready; Abort preempts outstanding non-Abort | observation-port reconnect 추론/제어, Start/Stop/Reset retry/replay/release, Alarm 자동 Stop, Core heater 비트 매핑, 하드웨어 E-Stop |
+| `ThermalController` | phase, interlock, pending alarms including `CommunicationLost`, Recovery/Reset, recipe, event history, Abort reservation/apply. 판단과 명령 예약만 | I/O, plant 온도 합성, `Start`/`Stop`/`Tick`/`ReportTemperature`, heaterEnabled 정책 |
+| `VirtualPlcClient` | 명령 실행, plant 적분, 문/센서/과온(천장 500) 히터 래치, Stop/Abort heater-off, `heaterEnabled` 관측 비트 | Recipe 소유, Core 구독, 공정 phase |
 | `IPlcObservationPort` | connect/disconnect/read observation contract | output write, UI/Core dependency, simulation fault control |
 | `IPlcOutputPort` | typed one-shot output write only | input read, connection/disposal, UI/Core dependency, simulation controls |
 | `IPlcClient` | empty compatibility composite of observation + output ports | UI/Core dependency, fault injection, reconnect policy |

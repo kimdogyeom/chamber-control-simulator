@@ -43,6 +43,7 @@ namespace ChamberControlSimulator.Presentation
 
 			_view.StartRequested += OnStartRequestedAsync;
 			_view.StopRequested += OnStopRequestedAsync;
+			_view.AbortRequested += OnAbortRequestedAsync;
 			_view.AcknowledgeRequested += OnAcknowledgeRequested;
 			_view.ResetRequested += OnResetRequestedAsync;
 			_view.DoorToggleRequested += OnDoorToggleRequested;
@@ -124,6 +125,7 @@ namespace ChamberControlSimulator.Presentation
 		{
 			_view.StartRequested -= OnStartRequestedAsync;
 			_view.StopRequested -= OnStopRequestedAsync;
+			_view.AbortRequested -= OnAbortRequestedAsync;
 			_view.AcknowledgeRequested -= OnAcknowledgeRequested;
 			_view.ResetRequested -= OnResetRequestedAsync;
 			_view.DoorToggleRequested -= OnDoorToggleRequested;
@@ -145,7 +147,9 @@ namespace ChamberControlSimulator.Presentation
 				CommandDisposition = command.Disposition,
 				CommandId = command.CommandId,
 				CommandKind = command.Kind,
-				IsAutomatic = command.IsAutomatic
+				IsAutomatic = command.IsAutomatic,
+				RejectionReason = command.RejectionReason,
+				RejectedKind = command.RejectedKind
 			};
 			_view.ShowSnapshot(_controller.Snapshot);
 			_view.ShowEquipmentStatus(_status);
@@ -157,6 +161,34 @@ namespace ChamberControlSimulator.Presentation
 
 		private Task OnStopRequestedAsync() =>
 			OnCommandRequestedAsync(_commandRuntime.RequestStopAsync);
+		private Task OnAbortRequestedAsync()
+		{
+			if (Volatile.Read(ref _commandInProgress) != 0)
+			{
+				return RequestAbortWhileCommandInProgressAsync();
+			}
+
+			return OnCommandRequestedAsync(_commandRuntime.RequestAbortAsync);
+		}
+
+		private async Task RequestAbortWhileCommandInProgressAsync()
+		{
+			try
+			{
+				await _commandRuntime.RequestAbortAsync(_shutdown.Token);
+				if (Volatile.Read(ref _isDisposed) == 0)
+				{
+					RefreshView();
+				}
+			}
+			catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
+			{
+			}
+			catch (Exception exception)
+			{
+				System.Diagnostics.Trace.TraceError(exception.ToString());
+			}
+		}
 
 		private Task OnResetRequestedAsync() =>
 			OnCommandRequestedAsync(_commandRuntime.RequestResetAsync);
@@ -365,7 +397,9 @@ namespace ChamberControlSimulator.Presentation
 					cycle.CommandDisposition,
 					cycle.CommandId,
 					_commandRuntime.CurrentState.Kind,
-					_commandRuntime.CurrentState.IsAutomatic);
+					_commandRuntime.CurrentState.IsAutomatic,
+					_commandRuntime.CurrentState.RejectionReason,
+					_commandRuntime.CurrentState.RejectedKind);
 				if (Volatile.Read(ref _isDisposed) == 0)
 				{
 					RefreshView();

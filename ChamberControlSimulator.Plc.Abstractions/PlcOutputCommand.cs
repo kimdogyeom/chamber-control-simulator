@@ -4,7 +4,8 @@ public enum PlcCommandKind
 {
 	Start,
 	Stop,
-	Reset
+	Reset,
+	Abort
 }
 
 public sealed record PlcOutputCommand

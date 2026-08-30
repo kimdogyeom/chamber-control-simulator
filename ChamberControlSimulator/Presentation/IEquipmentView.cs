@@ -9,6 +9,7 @@ namespace ChamberControlSimulator.Presentation
 	{
 		event Func<Task>? StartRequested;
 		event Func<Task>? StopRequested;
+		event Func<Task>? AbortRequested;
 		event EventHandler? AcknowledgeRequested;
 		event Func<Task>? ResetRequested;
 

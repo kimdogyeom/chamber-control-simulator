@@ -43,6 +43,7 @@ namespace ChamberControlSimulator
             pnlRecipeCommand = new Panel();
             grpRecipeCommand = new GroupBox();
             btnStop = new Button();
+            btnAbort = new Button();
             btnReset = new Button();
             btnAcknowledge = new Button();
             btnStart = new Button();
@@ -250,6 +251,7 @@ namespace ChamberControlSimulator
             // grpRecipeCommand
             //
             grpRecipeCommand.Controls.Add(btnStop);
+            grpRecipeCommand.Controls.Add(btnAbort);
             grpRecipeCommand.Controls.Add(btnReset);
             grpRecipeCommand.Controls.Add(btnAcknowledge);
             grpRecipeCommand.Controls.Add(btnStart);
@@ -277,6 +279,17 @@ namespace ChamberControlSimulator
             btnStop.UseVisualStyleBackColor = true;
             btnStop.Click += btnStop_Click;
             //
+            // btnAbort
+            //
+            btnAbort.Location = new Point(96, 201);
+            btnAbort.Margin = new Padding(6);
+            btnAbort.Name = "btnAbort";
+            btnAbort.Size = new Size(188, 51);
+            btnAbort.TabIndex = 7;
+            btnAbort.Text = "Software Abort";
+            btnAbort.UseVisualStyleBackColor = true;
+            btnAbort.Click += btnAbort_Click;
+            //
             // btnReset
             //
             btnReset.Location = new Point(316, 269);
@@ -301,7 +314,7 @@ namespace ChamberControlSimulator
             //
             // btnStart
             //
-            btnStart.Location = new Point(96, 201);
+            btnStart.Location = new Point(96, 150);
             btnStart.Margin = new Padding(6);
             btnStart.Name = "btnStart";
             btnStart.Size = new Size(188, 51);
@@ -711,6 +724,7 @@ namespace ChamberControlSimulator
         private Label lblRecipeText;
         private ComboBox cmbRecipe;
         private Button btnStop;
+        private Button btnAbort;
         private Button btnReset;
         private Button btnAcknowledge;
         private Button btnStart;

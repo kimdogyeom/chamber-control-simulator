@@ -43,6 +43,34 @@ public sealed class EquipmentCommandRuntimeTests
 		Assert.AreEqual(PlcCommandKind.Stop, ports.LastCommand!.Kind);
 		Assert.AreEqual(2, ports.WriteCount);
 	}
+	// 목적: Cooling이고 heaterEnabled이면 CycleAsync가 Complete를 기다리지 않고 자동 Stop을 넣는지 검증한다.
+	// 예상 결과: Cooling cycle에서 Stop write, IsAutomatic true, Core는 Cooling 유지.
+	// 완료 조건: Cooling 중 히터를 끄기 위해 Complete까지 기다리지 않는다.
+	[TestMethod]
+	public async Task CycleAsync_WhenCoolingAndHeaterEnabled_AdmitsAutomaticStop()
+	{
+		var controller = new ThermalController(
+			new Recipe("Fast", 21d, 40d, TimeSpan.FromMilliseconds(1)),
+			new SimulationSettings(20d, TimeSpan.FromSeconds(3)));
+		var ports = new ControlledPlcPorts();
+		ports.EnqueueSnapshot(Snapshot(sequence: 1, currentTemperature: 20d, heaterEnabled: false));
+		await using var runtime = new EquipmentCommandRuntime(controller, ports, ports, TimeProvider.System);
+		await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		await runtime.RequestStartAsync(CancellationToken.None);
+		ports.EnqueueSnapshot(Snapshot(sequence: 2, acknowledgedCommandId: 1, currentTemperature: 20d, heaterEnabled: true));
+		await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		ports.EnqueueSnapshot(Snapshot(sequence: 3, acknowledgedCommandId: 1, currentTemperature: 21d, heaterEnabled: true));
+		await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		ports.EnqueueSnapshot(Snapshot(sequence: 4, acknowledgedCommandId: 1, currentTemperature: 21d, heaterEnabled: true));
+		var coolingCycle = await runtime.CycleAsync(TimeSpan.FromMilliseconds(1), CancellationToken.None);
+
+		Assert.AreEqual(ControllerState.Cooling, controller.Snapshot.State);
+		Assert.IsTrue(runtime.CurrentState.IsAutomatic);
+		Assert.AreEqual(ControllerCommandKind.Stop, runtime.CurrentState.Kind);
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.AwaitingAcknowledgement, coolingCycle.CommandDisposition);
+		Assert.AreEqual(PlcCommandKind.Stop, ports.LastCommand!.Kind);
+	}
+
 
 	// 목적: Alarm에서는 Complete 자동 Stop이 나가지 않는지 검증한다.
 	// 예상 결과: DoorOpen Alarm cycle 뒤 IsAutomatic false, Stop write 없음.
@@ -170,6 +198,53 @@ public sealed class EquipmentCommandRuntimeTests
 		Assert.AreEqual(0, ports.WriteCount);
 		Assert.AreEqual(ControllerState.Idle, controller.Snapshot.State);
 		Assert.IsEmpty(controller.EventHistory);
+	}
+	[TestMethod]
+	public async Task RequestStopAsync_WhileAlarm_RejectsWithCoreIneligibleReason()
+	{
+		var controller = CreateController();
+		ThermalControllerTestCommands.CompleteStart(controller);
+		controller.SetDoorOpen(true);
+		var ports = new ControlledPlcPorts();
+		ports.EnqueueSnapshot(Snapshot(sequence: 1, doorClosed: false));
+		await using var runtime = new EquipmentCommandRuntime(controller, ports, ports, TimeProvider.System);
+		await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+
+		var result = await runtime.RequestStopAsync(CancellationToken.None);
+
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.AdmissionRejected, result.Disposition);
+		Assert.AreEqual(EquipmentCommandRejectionReason.CoreIneligible, result.RejectionReason);
+		Assert.AreEqual(EquipmentCommandRejectionReason.CoreIneligible, runtime.CurrentState.RejectionReason);
+		Assert.AreEqual(ControllerCommandKind.Stop, runtime.CurrentState.RejectedKind);
+		Assert.AreEqual(0, ports.WriteCount);
+	}
+
+	[TestMethod]
+	public async Task RequestAbortAsync_WhileStartAwaitingAck_WritesAbortAndKeepsHoldUntilAck()
+	{
+		var controller = CreateController();
+		var ports = new ControlledPlcPorts();
+		ports.EnqueueSnapshot(Snapshot(sequence: 1));
+		await using var runtime = new EquipmentCommandRuntime(controller, ports, ports, TimeProvider.System);
+		await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+		var start = await runtime.RequestStartAsync(CancellationToken.None);
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.AwaitingAcknowledgement, start.Disposition);
+
+		var abort = await runtime.RequestAbortAsync(CancellationToken.None);
+
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.AwaitingAcknowledgement, abort.Disposition);
+		Assert.AreEqual(ControllerCommandKind.Abort, runtime.CurrentState.Kind);
+		Assert.AreEqual(2L, abort.CommandId);
+		Assert.AreEqual(PlcCommandKind.Abort, ports.LastCommand!.Kind);
+		Assert.AreEqual(2, ports.WriteCount);
+		Assert.AreEqual(ControllerState.Idle, controller.Snapshot.State);
+
+		ports.EnqueueSnapshot(Snapshot(sequence: 2, acknowledgedCommandId: abort.CommandId!.Value));
+		var completed = await runtime.CycleAsync(TimeSpan.Zero, CancellationToken.None);
+
+		Assert.AreEqual(EquipmentCommandLifecycleDisposition.Completed, completed.CommandDisposition);
+		Assert.HasCount(1, controller.EventHistory.Where(entry => entry.Event == "Abort"));
+		Assert.IsFalse(controller.EventHistory.Any(entry => entry.Event == "Start"));
 	}
 
 	// 목적: most recent P3 cycle이 stale 또는 transport-failed이면 earlier Completed baseline을 재사용하지 않는지 검증한다.
@@ -469,7 +544,7 @@ public sealed class EquipmentCommandRuntimeTests
 		CollectionAssert.AreEqual(new[] { typeof(ThermalController), typeof(IPlcObservationPort) }, p3Parameters);
 		CollectionAssert.AreEqual(new[] { typeof(ThermalController), typeof(IPlcObservationPort), typeof(IPlcOutputPort), typeof(TimeProvider), typeof(ReconnectPolicy) }, runtimeParameters);
 		CollectionAssert.AreEquivalent(
-			new[] { "CycleAsync", "DisposeAsync", "get_CurrentState", "RequestResetAsync", "RequestStartAsync", "RequestStopAsync", "StopAdmission" },
+			new[] { "CycleAsync", "DisposeAsync", "get_CurrentState", "RequestAbortAsync", "RequestResetAsync", "RequestStartAsync", "RequestStopAsync", "StopAdmission" },
 			publicMethods.Select(method => method.Name).ToArray());
 		Assert.IsFalse(publicMethods.Any(method => method.GetParameters().Any(parameter => parameter.ParameterType == typeof(ControllerCommandKind))));
 		Assert.IsFalse(typeof(EquipmentCommandRuntime).GetFields(BindingFlags.Instance | BindingFlags.NonPublic).Any(field => field.FieldType == typeof(IPlcClient)));
@@ -808,6 +883,7 @@ public sealed class EquipmentCommandRuntimeTests
 		Assert.IsNull(result.CommandId);
 		Assert.AreEqual(0, ports.WriteCount);
 		Assert.AreEqual(ControllerState.Idle, controller.Snapshot.State);
+		Assert.AreEqual(EquipmentCommandRejectionReason.AdmissionClosed, result.RejectionReason);
 	}
 
 	// 목적: receipt와 3초 deadline이 같은 monotonic timestamp에 settle하면 timeout이 tie를 이기는지 검증한다.
