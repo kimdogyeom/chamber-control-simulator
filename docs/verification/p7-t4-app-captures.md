@@ -4,7 +4,7 @@
 
 - Operator captures taken on current MainForm UI after Abort / disconnect-heater work.
 - Release automated evidence at source HEAD `f600f2a846193216c6ac5d2bf89bc11fb99a0f37`: 209/209.
-- Documentation commit that adds these PNGs is the capture SHA.
+- Documentation commit that adds these PNGs: `59c4ee7`.
 
 ## Decision
 
