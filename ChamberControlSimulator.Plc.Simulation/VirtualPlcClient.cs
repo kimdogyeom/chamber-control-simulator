@@ -256,6 +256,7 @@ public sealed class VirtualPlcClient : IPlcClient
 
 	private void ClearSourceTransport(PlcConnectionState connectionState = PlcConnectionState.Disconnected)
 	{
+		_heaterEnabled = false;
 		_currentSourceTransportIncarnation = null;
 		ConnectionState = connectionState;
 	}

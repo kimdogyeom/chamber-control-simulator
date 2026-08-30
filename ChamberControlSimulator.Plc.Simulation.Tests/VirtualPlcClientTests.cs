@@ -174,4 +174,42 @@ public sealed class VirtualPlcClientTests
 		Assert.AreEqual(80d, snapshot.CurrentTemperature);
 		Assert.IsFalse(snapshot.HeaterEnabled);
 	}
+	[TestMethod]
+	public async Task ForceTransportDisconnect_AfterStartHeater_StopsTemperatureRise()
+	{
+		var client = new VirtualPlcClient(new VirtualPlcOptions(20d, 5d, TimeSpan.Zero));
+		IPlcClient port = client;
+		await port.ConnectAsync(CancellationToken.None);
+		await port.WriteOutputsAsync(new PlcOutputCommand(1, PlcCommandKind.Start), CancellationToken.None);
+		client.SimulationControl.Advance(TimeSpan.FromSeconds(1));
+		var heating = await port.ReadInputsAsync(CancellationToken.None);
+
+		client.SimulationControl.ForceTransportDisconnect();
+		client.SimulationControl.Advance(TimeSpan.FromSeconds(2));
+		await port.ConnectAsync(CancellationToken.None);
+		var afterDisconnect = await port.ReadInputsAsync(CancellationToken.None);
+
+		Assert.AreEqual(25d, heating.CurrentTemperature);
+		Assert.IsTrue(heating.HeaterEnabled);
+		Assert.IsLessThanOrEqualTo(heating.CurrentTemperature, afterDisconnect.CurrentTemperature);
+		Assert.IsFalse(afterDisconnect.HeaterEnabled);
+	}
+
+	[TestMethod]
+	public async Task ResetCommand_DoesNotKeepHeaterOnAfterDisconnectTrip()
+	{
+		var client = new VirtualPlcClient(new VirtualPlcOptions(20d, 5d, TimeSpan.Zero));
+		IPlcClient port = client;
+		await port.ConnectAsync(CancellationToken.None);
+		await port.WriteOutputsAsync(new PlcOutputCommand(1, PlcCommandKind.Start), CancellationToken.None);
+		client.SimulationControl.Advance(TimeSpan.FromSeconds(1));
+		client.SimulationControl.ForceTransportDisconnect();
+		await port.ConnectAsync(CancellationToken.None);
+		await port.WriteOutputsAsync(new PlcOutputCommand(2, PlcCommandKind.Reset), CancellationToken.None);
+		client.SimulationControl.Advance(TimeSpan.FromSeconds(1));
+		var afterReset = await port.ReadInputsAsync(CancellationToken.None);
+
+		Assert.IsFalse(afterReset.HeaterEnabled);
+		Assert.IsLessThanOrEqualTo(25d, afterReset.CurrentTemperature);
+	}
 }
