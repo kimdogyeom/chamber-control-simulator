@@ -2,15 +2,8 @@ namespace ChamberControlSimulator
 {
     partial class MainForm
     {
-        /// <summary>
-        /// Required designer variable.
-        /// </summary>
         private System.ComponentModel.IContainer components = null;
 
-        /// <summary>
-        /// Clean up any resources being used.
-        /// </summary>
-        /// <param name="disposing">true if managed resources should be disposed; otherwise, false.</param>
         protected override void Dispose(bool disposing)
         {
             if (disposing && (components != null))
@@ -20,12 +13,6 @@ namespace ChamberControlSimulator
             base.Dispose(disposing);
         }
 
-        #region Windows Form Designer generated code
-
-        /// <summary>
-        /// Required method for Designer support - do not modify
-        /// the contents of this method with the code editor.
-        /// </summary>
         private void InitializeComponent()
         {
             components = new System.ComponentModel.Container();
@@ -118,7 +105,6 @@ namespace ChamberControlSimulator
             LayoutPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 546F));
             LayoutPanel.Size = new Size(1288, 1520);
             LayoutPanel.TabIndex = 0;
-            LayoutPanel.Paint += tableLayoutPanel1_Paint;
             //
             // pnlTopBar
             //
@@ -187,7 +173,6 @@ namespace ChamberControlSimulator
             grpEquipmentStatus.TabIndex = 0;
             grpEquipmentStatus.TabStop = false;
             grpEquipmentStatus.Text = "현재 장비 상태";
-            grpEquipmentStatus.Enter += grpEquipmentStatus_Enter;
             //
             // prgTemperature
             //
@@ -702,7 +687,6 @@ namespace ChamberControlSimulator
             ResumeLayout(false);
         }
 
-        #endregion
 
         private TableLayoutPanel LayoutPanel;
         private Panel pnlState;

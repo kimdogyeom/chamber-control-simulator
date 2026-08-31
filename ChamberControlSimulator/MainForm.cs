@@ -114,17 +114,6 @@ namespace ChamberControlSimulator
 			_stopwatch.Start();
 			tmSimulationTick.Start();
 		}
-
-		private void tableLayoutPanel1_Paint(object sender, PaintEventArgs e)
-		{
-
-		}
-
-		private void panel5_Paint(object sender, PaintEventArgs e)
-		{
-
-		}
-
 		private async void btnStart_Click(object sender, EventArgs e)
 		{
 			try
@@ -405,11 +394,6 @@ namespace ChamberControlSimulator
 			{
 				lvwEventLog.EndUpdate();
 			}
-		}
-
-		private void grpEquipmentStatus_Enter(object sender, EventArgs e)
-		{
-
 		}
 
 	}
