@@ -14,9 +14,9 @@ WinForms 가상 열처리 챔버 제어 시뮬레이터입니다. UI, Core 제�
 
 ## 시스템 구조
 
-네 축이 맞물려 돌아가되, 한 축의 오류가 권한 없는 다른 축을 죽이지 않습니다.
+운영자 Start는 HMI → CommandRuntime → Core 예약 뒤에만 PLC write로 나갑니다. Written 영수증은 히터 켜짐도, 공정 시작도 아닙니다.
 
-![4축 책임 분리](docs/demo/images/architecture-four-axes.png)
+![Start 명령 흐름](docs/demo/images/architecture-flow.png)
 
 | 축 | 하는 일 | 하지 않는 일 |
 | --- | --- | --- |
