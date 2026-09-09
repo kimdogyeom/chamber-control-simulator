@@ -174,6 +174,27 @@ public sealed class VirtualPlcClientTests
 		Assert.AreEqual(80d, snapshot.CurrentTemperature);
 		Assert.IsFalse(snapshot.HeaterEnabled);
 	}
+	// 목적: ACK delay 중 단절된 Start가 재연결 뒤 Advance에서 히터/ACK를 만들지 않는지 검증한다.
+	// 예상 결과: reconnect 후 delay만큼 Advance해도 온도 20, ACK 0, heater off다.
+	// 완료 조건: session-ending transport clear가 pending semantic 큐를 비워 죽은 Start를 적용하지 않는다.
+	[TestMethod]
+	public async Task DelayedStart_DoesNotApplyAfterDisconnectAndReconnect()
+	{
+		var client = new VirtualPlcClient(new VirtualPlcOptions(20d, 5d, TimeSpan.FromSeconds(2)));
+		IPlcClient port = client;
+		await port.ConnectAsync(CancellationToken.None);
+		await port.WriteOutputsAsync(new PlcOutputCommand(1, PlcCommandKind.Start), CancellationToken.None);
+
+		client.SimulationControl.ForceTransportDisconnect();
+		await port.ConnectAsync(CancellationToken.None);
+		client.SimulationControl.Advance(TimeSpan.FromSeconds(2));
+		var afterReconnect = await port.ReadInputsAsync(CancellationToken.None);
+
+		Assert.AreEqual(20d, afterReconnect.CurrentTemperature);
+		Assert.AreEqual(0L, afterReconnect.AcknowledgedCommandId);
+		Assert.IsFalse(afterReconnect.HeaterEnabled);
+	}
+
 	[TestMethod]
 	public async Task ForceTransportDisconnect_AfterStartHeater_StopsTemperatureRise()
 	{
